@@ -1,0 +1,207 @@
+{
+  "swarm_configuration": {
+    "name": "AutoCAD Civil 3D Tools Development Swarm",
+    "version": "1.0.0",
+    "created": "2025-09-30",
+    "topology": "hierarchical",
+    "max_agents": 8,
+    "auto_spawn": true,
+    "memory_enabled": true,
+    "execution_strategy": "adaptive",
+    "github_integration": true,
+    "project_context": {
+      "type": "autocad_civil3d_tools",
+      "language": "csharp",
+      "framework": "dotnet",
+      "solution_file": "Acad-C3D-Tools/Acad-C3D-Tools.sln",
+      "project_count": 23,
+      "shared_projects": [
+        "AutoCADCommandsSHARED",
+        "FormsSHARED", 
+        "UtilitiesCommonSHARED",
+        "NorsynHydraulicShared"
+      ]
+    },
+    "agent_roles": {
+      "coordinator": {
+        "role": "Project Coordinator",
+        "responsibility": "Overall project management, task distribution, and coordination",
+        "specialization": "Solution-level architecture, build management, dependency coordination",
+        "priority": 1
+      },
+      "core_developer": {
+        "role": "Core AutoCAD Developer", 
+        "responsibility": "Core AutoCAD functionality, shared components, and base utilities",
+        "specialization": "AutoCAD API, shared projects (AutoCADCommandsSHARED, UtilitiesCommonSHARED)",
+        "projects": ["IntersectUtilities", "AutoCADCommands", "AcadOverrules"],
+        "priority": 2
+      },
+      "civil3d_specialist": {
+        "role": "Civil 3D Specialist",
+        "responsibility": "Civil 3D specific functionality and hydraulic calculations",
+        "specialization": "Civil 3D API, hydraulic modeling, pipe network systems",
+        "projects": ["DimensioneringV2", "Dimensionering", "NorsynHydraulicCalc"],
+        "priority": 2
+      },
+      "data_integration": {
+        "role": "Data Integration Developer",
+        "responsibility": "External data import/export and format conversion",
+        "specialization": "LER data, GeoJSON, shape files, LandXML",
+        "projects": ["LERImporter", "ExportShapeFiles", "ReverseLayoutProfileLANDXML"],
+        "priority": 3
+      },
+      "ui_developer": {
+        "role": "UI/UX Developer",
+        "responsibility": "User interface components and palette development",
+        "specialization": "WPF, AutoCAD palettes, forms development",
+        "projects": ["DriPaletteSet", "FormsSHARED"],
+        "priority": 3
+      },
+      "automation_specialist": {
+        "role": "Automation Specialist", 
+        "responsibility": "Build automation, sheet creation, and workflow automation",
+        "specialization": "Process automation, batch operations",
+        "projects": ["SheetCreationAutomation", "AcCoreConsoleAutomation", "Net-Reload"],
+        "priority": 4
+      },
+      "graphics_specialist": {
+        "role": "Graphics & Export Specialist",
+        "responsibility": "Graphics output, SVG export, and visualization",
+        "specialization": "Graphics rendering, export formats, visualization",
+        "projects": ["ExportBlocksToSvg", "IsoTools"],
+        "priority": 4
+      },
+      "testing_qa": {
+        "role": "Testing & QA Specialist",
+        "responsibility": "Testing, quality assurance, and documentation",
+        "specialization": "Unit testing, integration testing, code quality",
+        "projects": ["DocsCreateCommandDescriptionsHtml"],
+        "priority": 5
+      }
+    },
+    "communication_protocols": {
+      "message_passing": {
+        "enabled": true,
+        "channels": ["task_updates", "dependency_notifications", "error_reports", "build_status"]
+      },
+      "shared_memory": {
+        "enabled": true,
+        "namespaces": ["project_state", "build_artifacts", "shared_dependencies", "solution_metadata"]
+      },
+      "event_driven": {
+        "enabled": true,
+        "events": ["build_complete", "test_complete", "dependency_updated", "task_blocked"]
+      }
+    },
+    "resource_allocation": {
+      "cpu_allocation": {
+        "coordinator": "10%",
+        "core_developer": "25%", 
+        "civil3d_specialist": "25%",
+        "data_integration": "15%",
+        "ui_developer": "10%",
+        "automation_specialist": "10%",
+        "graphics_specialist": "10%",
+        "testing_qa": "5%"
+      },
+      "memory_limits": {
+        "per_agent": "2GB",
+        "shared_memory": "1GB",
+        "total_limit": "8GB"
+      }
+    },
+    "workflow_patterns": {
+      "feature_development": {
+        "steps": [
+          "coordinator_analyzes_requirements",
+          "coordinator_assigns_to_specialist", 
+          "specialist_develops_implementation",
+          "core_developer_reviews_shared_components",
+          "testing_qa_validates_changes",
+          "coordinator_integrates_and_builds"
+        ]
+      },
+      "bug_fix": {
+        "steps": [
+          "coordinator_triages_issue",
+          "appropriate_specialist_investigates",
+          "specialist_implements_fix",
+          "testing_qa_verifies_fix",
+          "coordinator_merges_changes"
+        ]
+      },
+      "refactoring": {
+        "steps": [
+          "coordinator_identifies_scope",
+          "core_developer_plans_changes",
+          "multiple_specialists_coordinate_updates",
+          "testing_qa_ensures_compatibility",
+          "coordinator_validates_solution_integrity"
+        ]
+      }
+    },
+    "monitoring": {
+      "performance_metrics": {
+        "task_completion_rate": true,
+        "agent_utilization": true,
+        "communication_overhead": true,
+        "memory_usage": true
+      },
+      "health_checks": {
+        "agent_responsiveness": true,
+        "dependency_resolution": true,
+        "build_success_rate": true,
+        "test_pass_rate": true
+      }
+    },
+    "integration_points": {
+      "version_control": {
+        "system": "git",
+        "auto_commit": false,
+        "auto_push": false,
+        "branch_strategy": "feature_branches"
+      },
+      "build_system": {
+        "type": "msbuild",
+        "solution_file": "Acad-C3D-Tools/Acad-C3D-Tools.sln",
+        "auto_build": true,
+        "parallel_builds": true
+      },
+      "testing": {
+        "unit_tests": true,
+        "integration_tests": true,
+        "auto_test": true
+      }
+    }
+  },
+  "optimization_settings": {
+    "auto_scale": {
+      "enabled": true,
+      "min_agents": 3,
+      "max_agents": 8,
+      "scale_triggers": {
+        "high_workload": "spawn_specialist",
+        "low_utilization": "consolidate_agents",
+        "complex_task": "increase_max_agents"
+      }
+    },
+    "load_balancing": {
+      "algorithm": "weighted_round_robin",
+      "weights_based_on": ["agent_specialization", "current_workload", "historical_performance"]
+    },
+    "caching": {
+      "build_artifacts": true,
+      "dependency_metadata": true,
+      "test_results": true,
+      "solution_analysis": true
+    }
+  },
+  "initialization_commands": [
+    "analyze_solution_structure",
+    "identify_shared_dependencies", 
+    "setup_build_environment",
+    "validate_project_references",
+    "establish_communication_channels",
+    "initialize_monitoring_systems"
+  ]
+}
