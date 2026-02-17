@@ -21,7 +21,11 @@ namespace DimensioneringV2.Legend
                 MapPropertyEnum.CriticalPath => (value is bool b && b) ? "Kritisk forbruger" : "",
                 MapPropertyEnum.SubGraphId => $"Sub-graph {value}",
                 MapPropertyEnum.Pipe => value is string s ? s == "NA 000" ? "" : s.ToString() : "",
-                
+                MapPropertyEnum.Address => value is string addr && !string.IsNullOrEmpty(addr) ? addr : "Ukendt",
+                MapPropertyEnum.BygningsAnvendelseNyTekst => value is string anvt && !string.IsNullOrEmpty(anvt) ? anvt : "Ukendt",
+                MapPropertyEnum.BygningsAnvendelseNyKode => value is string anvk && !string.IsNullOrEmpty(anvk) ? anvk : "Ukendt",
+                MapPropertyEnum.Nyttetimer => value is int nt && nt > 0 ? nt.ToString() : "",
+
                 //Not used for gradient legend
 
                 //Not used

@@ -82,6 +82,11 @@ namespace DimensioneringV2.GraphFeatures
                                     if (!visited.Contains(neighbor) && neighbor.HasPoint(exitPt))
                                     {
                                         stack.Push((neighbor, exitPt));
+
+                                        if (node.seg.IsBuildingConnection != neighbor.IsBuildingConnection)
+                                        {
+                                            startNew = true;
+                                        }
                                     }
                                 }
                                 break;
@@ -142,44 +147,6 @@ namespace DimensioneringV2.GraphFeatures
                         else fullGeometry = lines[0];
                         #endregion
 
-                        #region Cache the original geometry to better restore later
-                        NetTopologySuite.Geometries.Geometry? stik = null;
-                        NetTopologySuite.Geometries.Geometry? vej = null;
-                        //Handle stik geometry if any
-                        var stikquery = originalNodes.FirstOrDefault(x => x.IsBuildingConnection);
-                        if (stikquery != null)
-                            stik = stikquery.ToLineString();
-                        //Handle vej geometry if any
-                        var vejquery = originalNodes.Where(x => !x.IsBuildingConnection).ToList();
-                        if (vejquery.Count == 1) vej = vejquery.First().ToLineString();
-                        else if (vejquery.Count > 1)
-                        {
-                            var vlist = vejquery.Select(x => x.ToLineString()).ToList();
-
-                            var merger = new NetTopologySuite.Operation.Linemerge.LineMerger();
-                            merger.Add(vlist);
-                            var merged = merger.GetMergedLineStrings();
-
-                            if (merged.Count > 1)
-                            {
-                                foreach (var item in originalNodes)
-                                {
-                                    dbg.CreateDebugLine(
-                                        item.StartPoint.To3d(), utils.ColorByName("red"));
-                                    dbg.CreateDebugLine(
-                                        item.EndPoint.To3d(), utils.ColorByName("cyan"));
-                                }
-                                utils.prdDbg("Merging returned multiple linestrings!");
-                                throw new Exception("DBG: Merging returned multiple linestrings!");
-                            }
-                            vej = merged[0];
-                        }
-
-                        OriginalGeometry originalGeometry = 
-                            new OriginalGeometry(
-                                stik as LineString, vej as LineString, fullGeometry as LineString);
-                        #endregion
-
                         //Translate building data if any
                         Dictionary<string, object> attributes = new()
                         {
@@ -187,6 +154,7 @@ namespace DimensioneringV2.GraphFeatures
                             { "Name", "" },
                             { "Adresse", "" },
                             { "AdresseDuplikatNr", 0 },
+                            { "BygningsAnvendelseNyKode", "" },
                             { "BygningsAnvendelseNyTekst", "" },
                             { "Opførelsesår", 0 },
                             { "BeregningsAreal", 0.0 },
@@ -204,6 +172,8 @@ namespace DimensioneringV2.GraphFeatures
                             { "EstimeretVarmeForbrug", 0.0 },
                             { "AntalEnheder", 0 },
                             { "VarmeDistrikt", "" },
+                            { "TempDeltaVarme", 0.0 },
+                            { "TempDeltaBV", 0.0 },
                             { "IsBuildingConnection", false },
                             { "IsRootNode", false },
                         };
@@ -231,6 +201,7 @@ namespace DimensioneringV2.GraphFeatures
                             attributes["Name"] = bbr.Name;
                             attributes["Adresse"] = bbr.Adresse;
                             attributes["AdresseDuplikatNr"] = bbr.AdresseDuplikatNr;
+                            attributes["BygningsAnvendelseNyKode"] = bbr.BygningsAnvendelseNyKode;
                             attributes["BygningsAnvendelseNyTekst"] = bbr.BygningsAnvendelseNyTekst;
                             attributes["Opførelsesår"] = bbr.Opførelsesår;
                             attributes["BeregningsAreal"] = bbr.SamletBoligareal + bbr.SamletErhvervsareal;
@@ -248,6 +219,8 @@ namespace DimensioneringV2.GraphFeatures
                             attributes["EstimeretVarmeForbrug"] = bbr.EstimeretVarmeForbrug;
                             attributes["AntalEnheder"] = bbr.AntalEnheder;
                             attributes["VarmeDistrikt"] = bbr.DistriktetsNavn;
+                            attributes["TempDeltaVarme"] = bbr.TempDeltaVarme;
+                            attributes["TempDeltaBV"] = bbr.TempDeltaBV;
                             attributes["IsBuildingConnection"] = true;
                         }
 
@@ -256,7 +229,7 @@ namespace DimensioneringV2.GraphFeatures
                             attributes["IsRootNode"] = true;
                         }
 
-                        AnalysisFeature fn = new AnalysisFeature(fullGeometry, originalGeometry, attributes);
+                        AnalysisFeature fn = new AnalysisFeature(fullGeometry as LineString, attributes);
                         nodes.Add(fn);
                     }
                 }

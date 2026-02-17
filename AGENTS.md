@@ -26,5 +26,42 @@ Style: businesslike; no fluff, no stories, no metaphors.
 • If pauses aren’t allowed, first list needed clarifications; then give best attempt, explicitly marking assumptions and limits.
 • Never mask lack of data: write “I cannot verify this” or “No sufficiently reliable sources found.” 
 
+## Build Scripts
+The repository includes batch files for building projects with MSBuild (required due to COM references that `dotnet build` cannot resolve):
+
+| Script | Project | Configuration |
+|--------|---------|---------------|
+| `build-intersectutilities-debug.bat` | IntersectUtilities | Debug |
+| `build-intersectutilities-release.bat` | IntersectUtilities | Release |
+| `build-ntrexport-debug.bat` | NTRExport | Debug |
+| `build-dimensioneringv2-debug.bat` | DimensioneringV2 | Debug |
+| `build-dimensionering-debug.bat` | Dimensionering | Debug |
+| `build-exportshapefiles-debug.bat` | ExportShapeFiles | Debug |
+| `build-nstbl-debug.bat` | NSTBL | Debug |
+
+All scripts use VS 2022 Community MSBuild at `C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe` and output errors only with summary.
+
+### dotnet build
+When building with `dotnet build`, always suppress warnings and build only the target project:
+```bash
+dotnet build ProjectName.csproj --nologo -v q
+```
+- `--nologo`: Suppress the startup banner
+- `-v q`: Quiet verbosity (errors only)
+
+Filter output to show only errors: `2>&1 | grep -E "(error|Error)"`
+
 ## Coding Style & Naming Conventions
 Use four-space indentation and respect nullable reference types (`<Nullable>enable</Nullable>` is the default). Favor PascalCase for public types, camelCase for locals, and avoid abbreviations not already established nearby. Keep command class names aligned with their AutoCAD command keyword (for example `ApplyDimCommand`). `.editorconfig` disables XML documentation warnings; prefer concise inline comments only when the intent is non-obvious.
+
+## Domain knowledge
+### District heating pipe types
+District Heating steel piping systems currently have two general types:
+- Bonded pipes
+- Twin pipes
+
+#### Bonded pipes
+Bonded pipes exist in all pipe dimensions. There are two distinct steel pipes with each a plastic jacked and insulation. These are drawn using distinct polylines each.
+
+#### Twin pipes
+Twin pipes exist in sizes up to DN 200 (250 sometimes). There are two steel pipes in one plastic jacket. The return pipe is above the supply pipe. This system is drawn using one polyline.

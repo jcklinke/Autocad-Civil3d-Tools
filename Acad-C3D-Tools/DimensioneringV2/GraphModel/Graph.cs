@@ -61,8 +61,10 @@ namespace DimensioneringV2.GraphModelRoads
             if (buildings != null)
                 ProjectBuildingsOntoGraph(buildings, NoCrossIndex);
 
+            //For each segment finds neighbouring segments
             BuildNeighbors();
 
+            //Marks the root segments as such
             MarkRootSegmentsAsSuch(rootPoints);
 
             if (buildings != null) PruneNonBuildingLeafNodes();
@@ -151,7 +153,7 @@ namespace DimensioneringV2.GraphModelRoads
             {
                 var startPoint = polyline.GetPoint2dAt(i);
                 var endPoint = polyline.GetPoint2dAt(i + 1);
-                if (startPoint.GetDistanceTo(endPoint) < Tolerance.Default)
+                if (startPoint.GetDistanceTo(endPoint) < Tolerance.Coordinate)
                     continue; // Skip zero-length segments (duplicate points)
                 var segment = new SegmentNode(startPoint, endPoint);
                 segments.Add(segment);
@@ -325,9 +327,14 @@ namespace DimensioneringV2.GraphModelRoads
                 projectedPoints.Add(segment.EndPoint);
 
                 // Remove duplicates and sort points along the segment
-                projectedPoints = projectedPoints.Distinct().ToList();
-                if (projectedPoints.Count == 2) continue; //This indicates that only start and end points are left.
-                projectedPoints.Sort((a, b) => segment.GetParameterAtPoint(a).CompareTo(segment.GetParameterAtPoint(b)));
+                // TODO: Added EqualityComparer -> remove if gives problems
+                projectedPoints = projectedPoints.Distinct(
+                    new Point2DEqualityComparer()).ToList();
+                //This indicates that only start and end points are left.
+                if (projectedPoints.Count == 2) continue;
+                projectedPoints.Sort(
+                    (a, b) => segment.GetParameterAtPoint(a)
+                    .CompareTo(segment.GetParameterAtPoint(b)));
 
                 // Remove the original segment
                 Segments.Remove(segment);
@@ -359,7 +366,7 @@ namespace DimensioneringV2.GraphModelRoads
         }
         public IEnumerable<Point2D> GetLeafNodePoints()
         {
-            var pointToSegments = new Dictionary<Point2D, List<SegmentNode>>();
+            var pointToSegments = new Dictionary<Point2D, List<SegmentNode>>(new Point2DEqualityComparer());
             foreach (var segment in Segments)
             {
                 if (!pointToSegments.ContainsKey(segment.StartPoint))

@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.ApplicationServices.Core;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -31,6 +31,7 @@ using IntersectUtilities.UtilsCommon;
 using Microsoft.Office.Interop.Excel;
 
 using IntersectUtilities.UtilsCommon.Enums;
+using IntersectUtilities.PlanDetailing;
 
 using static IntersectUtilities.Enums;
 using static IntersectUtilities.HelperMethods;
@@ -39,6 +40,7 @@ using static IntersectUtilities.UtilsCommon.Utils;
 
 using static IntersectUtilities.UtilsCommon.UtilsDataTables;
 using static IntersectUtilities.UtilsCommon.UtilsODData;
+using IntersectUtilities.UtilsCommon.DataManager.CsvData;
 
 using BlockReference = Autodesk.AutoCAD.DatabaseServices.BlockReference;
 using CivSurface = Autodesk.Civil.DatabaseServices.Surface;
@@ -59,6 +61,7 @@ using IntersectUtilities.Dimensionering.Forms;
 using Schema.Datafordeler;
 using DimensioneringV2;
 using Microsoft.Win32;
+using Microsoft.VisualBasic.FileIO;
 
 namespace IntersectUtilities.Dimensionering
 {
@@ -112,6 +115,10 @@ namespace IntersectUtilities.Dimensionering
             Database localDb = docCol.MdiActiveDocument.Database;
             Editor editor = docCol.MdiActiveDocument.Editor;
             Document doc = docCol.MdiActiveDocument;
+
+            PropertySetManager.UpdatePropertySetDefinition(
+                Application.DocumentManager.MdiActiveDocument.Database,
+                PSetDefs.DefinedSets.BBR);
 
             #region Dialog box for selecting the geojson file
             string dbFilename = localDb.OriginalFileName;
@@ -779,8 +786,7 @@ namespace IntersectUtilities.Dimensionering
                         //used to get the line by comparing line's child to block's handle
                         Entity getFirstChild(Line line)
                         {
-                            graphPsm.GetOrAttachPropertySet(line);
-                            string chStr = graphPsm.ReadPropertyString(graphDef.Children);
+                            string chStr = graphPsm.ReadPropertyString(line, graphDef.Children);
                             string firstChild = chStr.Split(';')[0];
                             if (firstChild.IsNoE()) throw new System.Exception(
                                 $"Line {line.Handle} does not have a child specified!");
@@ -788,8 +794,7 @@ namespace IntersectUtilities.Dimensionering
                         }
 
                         //Get the original building block
-                        graphPsm.GetOrAttachPropertySet(husNrLine);
-                        string lineParentStr = graphPsm.ReadPropertyString(graphDef.Parent);
+                        string lineParentStr = graphPsm.ReadPropertyString(husNrLine, graphDef.Parent);
                         BlockReference buildingBlock = localDb.Go<BlockReference>(lineParentStr);
 
                         //Load the husnumre
@@ -805,7 +810,7 @@ namespace IntersectUtilities.Dimensionering
                         prdDbg($"Antal adresser fjernet: {removed}.");
 
                         //Remove the reference to the connection line object
-                        string childrenStr = graphPsm.ReadPropertyString(graphDef.Children);
+                        string childrenStr = graphPsm.ReadPropertyString(husNrLine, graphDef.Children);
                         var split = childrenStr.Split(';').ToList();
                         split.RemoveAll(x => x == husNrLine.Handle.ToString().ToUpper());
                         childrenStr = String.Join(";", split);
@@ -1331,10 +1336,8 @@ namespace IntersectUtilities.Dimensionering
 
                     foreach (BlockReference building in brs)
                     {
-                        bbrPsm.GetOrAttachPropertySet(building);
-                        string anvendelsesTekst = bbrPsm.ReadPropertyString(bbrDef.BygningsAnvendelseNyTekst);
-                        string anvendelsesKode = bbrPsm.ReadPropertyString(bbrDef.BygningsAnvendelseNyKode);
-                        anvendelsesKoder.Add((anvendelsesKode, anvendelsesTekst));
+                        var bbr = new BBR(building);
+                        anvendelsesKoder.Add((bbr.BygningsAnvendelseNyKode, bbr.BygningsAnvendelseNyTekst));
                     }
 
                     //Build file name
@@ -1376,7 +1379,7 @@ namespace IntersectUtilities.Dimensionering
             {
                 try
                 {
-                    System.Data.DataTable dt = CsvReader.ReadCsvToDataTable(
+                    System.Data.DataTable dt = ReadCsvToDataTableLocal(
                         @"X:\AutoCAD DRI - QGIS\CSV TIL REST HENTER\AnvendelsesKoderPrivatErhverv.csv", "PrivatErhverv");
 
                     PropertySetManager bbrPsm = new PropertySetManager(localDb, PSetDefs.DefinedSets.BBR);
@@ -1398,8 +1401,8 @@ namespace IntersectUtilities.Dimensionering
 
                     foreach (BlockReference br in brs)
                     {
-                        bbrPsm.GetOrAttachPropertySet(br);
-                        string anvendelse = bbrPsm.ReadPropertyString(bbrDef.BygningsAnvendelseNyTekst);
+                        var bbr = new BBR(br);
+                        string anvendelse = bbr.BygningsAnvendelseNyTekst;
 
                         if (dict.ContainsKey(anvendelse))
                         {
@@ -1647,13 +1650,14 @@ namespace IntersectUtilities.Dimensionering
                 PropertySetManager bbrPsm = new PropertySetManager(localDb, PSetDefs.DefinedSets.BBR);
                 PSetDefs.BBR bbrDef = new PSetDefs.BBR();
 
-                var enhKoder = CsvData.EnhKoder;
+                var enhKoder = Csv.EnhKoder;
                 Dictionary<string, string> enhKoderDict = new Dictionary<string, string>();
-                foreach (DataRow row in enhKoder.Rows)
+                foreach (var row in enhKoder.Rows)
                 {
-                    string key = row[0].ToString();
-                    string value = row[1].ToString();
-                    enhKoderDict.Add(key, value);
+                    string key = EnhKoder.Col(row, EnhKoder.Columns.Nr);
+                    string value = EnhKoder.Col(row, EnhKoder.Columns.Kode);
+                    if (!enhKoderDict.ContainsKey(key))
+                        enhKoderDict.Add(key, value);
                 }
 
                 var brs = localDb.HashSetOfType<BlockReference>(tx, true);
@@ -1791,15 +1795,16 @@ namespace IntersectUtilities.Dimensionering
                 PropertySetManager bbrPsm = new PropertySetManager(localDb, PSetDefs.DefinedSets.BBR);
                 PSetDefs.BBR bbrDef = new PSetDefs.BBR();
 
-                var enhKoder = CsvData.EnhKoder;
+                var enhKoder = Csv.EnhKoder;
                 var enhKoderDict = new Dictionary<string, bool>();
-                foreach (DataRow row in enhKoder.Rows)
+                foreach (var row in enhKoder.Rows)
                 {
                     //Column "Nr."
-                    string key = row[0].ToString();
+                    string key = EnhKoder.Col(row, EnhKoder.Columns.Nr);
                     //Column "Beboelse"
-                    bool result = int.Parse(row[2].ToString()) == 1;
-                    enhKoderDict.Add(key, result);
+                    bool result = int.TryParse(EnhKoder.Col(row, EnhKoder.Columns.Beboelse), out int val) && val == 1;
+                    if (!enhKoderDict.ContainsKey(key))
+                        enhKoderDict.Add(key, result);
                 }
 
                 //PrintTable(
@@ -1836,7 +1841,7 @@ namespace IntersectUtilities.Dimensionering
 
                         PrintTable(
                             ["Antal", "Forekomster"],
-                            groupByCount.Select(g => new object[] {g.Antal, g.Forekomst} as IEnumerable<object>)
+                            groupByCount.Select(g => new object[] { g.Antal, g.Forekomst } as IEnumerable<object>)
                             );
 
                         docCol.MdiActiveDocument.Editor.SetImpliedSelection(
@@ -1883,7 +1888,7 @@ namespace IntersectUtilities.Dimensionering
 
                     PrintTable(
                         ["Antal enheder", "Antal forekomster"],
-                        analysis.Select(x => new object[] {x.Value, x.Count} as IEnumerable<object>)
+                        analysis.Select(x => new object[] { x.Value, x.Count } as IEnumerable<object>)
                         );
                 }
                 catch (System.Exception ex)
@@ -1909,6 +1914,67 @@ namespace IntersectUtilities.Dimensionering
             prdDbg("ADVARSEL: ER IKKE TESTET SAMMEN MED DIMCONNECTHUSNR!!!!!!!!!");
         }
 
+        [CommandMethod("DIMFINDERASEDCHILDREN")]
+        public void dimfinderasedchildren()
+        {
+            DocumentCollection docCol = Application.DocumentManager;
+            Database localDb = docCol.MdiActiveDocument.Database;
+
+            PropertySetManager.UpdatePropertySetDefinition(localDb, PSetDefs.DefinedSets.BBR);
+
+            using Transaction tx = localDb.TransactionManager.StartTransaction();
+
+            try
+            {
+                var brs = localDb.HashSetOfTypeWithPs<BlockReference>(tx, PSetDefs.DefinedSets.BBR, true);
+
+                foreach (var br in brs)
+                {
+                    var ddg = new DriDimGraph(br);
+                    var children = ddg.Children;
+                    if (children.IsNoE()) continue;
+
+                    var split = children.Split(';');
+                    HashSet<string> passed = new HashSet<string>();
+                    foreach (var strid in split)
+                    {                        
+                        try
+                        {
+                            Handle h = new Handle(Convert.ToInt64(strid, 16));
+                            var oid = localDb.GetObjectId(false, h, 0);
+                            var ent = oid.Go<Entity>(tx);
+                        }
+                        catch (System.Exception)
+                        {
+                            prdDbg("Removing child: " + strid);
+                            continue;
+                        }
+                        passed.Add(strid);
+                    }
+                    if (passed.Count != split.Length)
+                    {
+                        string newChildren = string.Join(";", passed);
+                        ddg.Children = newChildren;
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                tx.Abort();
+                prdDbg(ex);
+                return;
+            }
+            finally
+            {
+
+            }
+            tx.Commit();
+
+            //string html = ConvertToHtmlTree(list);
+            //string htmlPath = "C:\\Temp\\" + "enheder.html";
+            //File.WriteAllText(htmlPath, html);
+        }
+
 #if DEBUG
         //[CommandMethod("DIMPROPEENERGY")]
         public void DimPropeEnergy()
@@ -1932,7 +1998,7 @@ namespace IntersectUtilities.Dimensionering
                 // WIP - DML
 
             }
-        } 
+        }
 #endif
 
         public static string ConvertToHtmlTree(List<(string bygning, string adresse, string enhedstype)> tuples)
@@ -1970,6 +2036,46 @@ namespace IntersectUtilities.Dimensionering
 
             sb.Append("</ul>");  // Close the top-level list
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Reads a CSV file into a DataTable. Local helper to replace removed CsvReader.
+        /// </summary>
+        private static System.Data.DataTable ReadCsvToDataTableLocal(string filePath, string tableName)
+        {
+            var dt = new System.Data.DataTable(tableName);
+
+            using (var parser = new TextFieldParser(filePath))
+            {
+                parser.TextFieldType = FieldType.Delimited;
+                parser.SetDelimiters(";");
+                parser.HasFieldsEnclosedInQuotes = true;
+
+                // Read header
+                if (!parser.EndOfData)
+                {
+                    string[]? headers = parser.ReadFields();
+                    if (headers != null)
+                    {
+                        foreach (string header in headers)
+                            dt.Columns.Add(header.Trim());
+                    }
+                }
+
+                // Read data rows
+                while (!parser.EndOfData)
+                {
+                    string[]? fields = parser.ReadFields();
+                    if (fields != null)
+                    {
+                        // Ensure field count matches column count
+                        if (fields.Length == dt.Columns.Count)
+                            dt.Rows.Add(fields);
+                    }
+                }
+            }
+
+            return dt;
         }
     }
 
@@ -2622,22 +2728,19 @@ namespace IntersectUtilities.Dimensionering
                         {
                             Polyline curPline = nd.Self;
 
-                            //Write parent data if it is not entry
-                            graphPsm.GetOrAttachPropertySet(curPline);
-
-                            if (graphPsm.ReadPropertyString(graphDef.Parent) != "Entry")
-                                graphPsm.WritePropertyString(
+                            if (graphPsm.ReadPropertyString(curPline, graphDef.Parent) != "Entry")
+                                graphPsm.WritePropertyString(curPline,
                                     graphDef.Parent, nd.Parent.Self.Handle.ToString());
 
                             //Write strækning id to property
                             fjvFremPsm.GetOrAttachPropertySet(curPline);
-                            fjvFremPsm.WritePropertyString(fjvFremDef.Bemærkninger,
+                            fjvFremPsm.WritePropertyString(curPline, fjvFremDef.Bemærkninger,
                                 $"Strækning {nd.GroupNumber}.{nd.PartNumber}");
 
                             //Write the children data
                             foreach (Node child in nd.ConnectionChildren)
                             {
-                                string curChildrenString = graphPsm.ReadPropertyString(graphDef.Children);
+                                string curChildrenString = graphPsm.ReadPropertyString(curPline, graphDef.Children);
                                 string childHandle = child.Self.Handle.ToString() + ";";
                                 if (!curChildrenString.Contains(childHandle)) curChildrenString += childHandle;
                                 graphPsm.WritePropertyString(graphDef.Children, curChildrenString);
@@ -2668,9 +2771,8 @@ namespace IntersectUtilities.Dimensionering
                                 fjvFremPsm.WritePropertyString(fjvFremDef.Distriktets_navn, curEtapeName);
                                 fjvFremPsm.WritePropertyString(fjvFremDef.Bemærkninger, "Stik");
 
-                                //Add connection to pline's children
-                                graphPsm.GetOrAttachPropertySet(curPline);
-                                string curChildrenString = graphPsm.ReadPropertyString(graphDef.Children);
+                                //Add connection to pline's children                                
+                                string curChildrenString = graphPsm.ReadPropertyString(curPline, graphDef.Children);
                                 string childHandle = connection.Handle.ToString() + ";";
                                 if (!curChildrenString.Contains(childHandle)) curChildrenString += childHandle;
                                 graphPsm.WritePropertyString(graphDef.Children, curChildrenString);
@@ -2761,9 +2863,8 @@ namespace IntersectUtilities.Dimensionering
 
                     foreach (Polyline entryElement in entryElements)
                     {
-                        //Write group number
-                        fjvFremPsm.GetOrAttachPropertySet(entryElement);
-                        string strNr = fjvFremPsm.ReadPropertyString(
+                        //Write group number                        
+                        string strNr = fjvFremPsm.ReadPropertyString(entryElement,
                             fjvFremDef.Bemærkninger).Replace("Strækning ", "");
 
                         sb.AppendLine($"****** Rørgruppe nr.: {strNr.Split('.')[0]} ******");
@@ -2777,8 +2878,7 @@ namespace IntersectUtilities.Dimensionering
                             Polyline curItem = stack.Pop();
 
                             //Write group and subgroup numbers
-                            fjvFremPsm.GetOrAttachPropertySet(curItem);
-                            string strNrString = fjvFremPsm.ReadPropertyString(fjvFremDef.Bemærkninger);
+                            string strNrString = fjvFremPsm.ReadPropertyString(curItem, fjvFremDef.Bemærkninger);
                             sb.AppendLine($"--> {strNrString} <--");
 
                             strNr = strNrString.Replace("Strækning ", "");
@@ -2794,8 +2894,7 @@ namespace IntersectUtilities.Dimensionering
                             strækning.PartNumber = Convert.ToInt32(strNr.Split('.')[1]);
                             strækning.Self = curItem;
 
-                            graphPsm.GetOrAttachPropertySet(curItem);
-                            string parentHandleString = graphPsm.ReadPropertyString(graphDef.Parent);
+                            string parentHandleString = graphPsm.ReadPropertyString(curItem, graphDef.Parent);
                             try
                             {
                                 if (parentHandleString != "Entry")
@@ -2814,8 +2913,8 @@ namespace IntersectUtilities.Dimensionering
                             {
                                 if (child is Polyline pline)
                                 {
-                                    fjvFremPsm.GetOrAttachPropertySet(pline);
-                                    string childStrNr = fjvFremPsm.ReadPropertyString(fjvFremDef.Bemærkninger).Replace("Strækning ", "");
+                                    string childStrNr = fjvFremPsm.ReadPropertyString(
+                                        pline, fjvFremDef.Bemærkninger).Replace("Strækning ", "");
                                     sb.AppendLine($"{strNr} -> {childStrNr}");
 
                                     //Push the polyline in to stack to continue iterating
@@ -2950,8 +3049,7 @@ namespace IntersectUtilities.Dimensionering
                         HashSet<Subgraph> subgraphs = new HashSet<Subgraph>();
 
                         //Write group number
-                        fjvFremPsm.GetOrAttachPropertySet(entryElement);
-                        string strNr = fjvFremPsm.ReadPropertyString(
+                        string strNr = fjvFremPsm.ReadPropertyString(entryElement,
                             fjvFremDef.Bemærkninger).Replace("Strækning ", "");
 
                         string subGraphNr = strNr.Split('.')[0];
@@ -2968,8 +3066,7 @@ namespace IntersectUtilities.Dimensionering
                             Polyline curItem = stack.Pop();
 
                             //Write group and subgroup numbers
-                            fjvFremPsm.GetOrAttachPropertySet(curItem);
-                            string strNrString = fjvFremPsm.ReadPropertyString(fjvFremDef.Bemærkninger);
+                            string strNrString = fjvFremPsm.ReadPropertyString(curItem, fjvFremDef.Bemærkninger);
                             strNr = strNrString.Replace("Strækning ", "");
 
                             string curNodeHandle = curItem.Handle.ToString();
@@ -3102,8 +3199,7 @@ namespace IntersectUtilities.Dimensionering
                         .ToHashSet();
                     foreach (Line line in linesToDelete)
                     {
-                        fjvFremPsm.GetOrAttachPropertySet(line);
-                        if (fjvFremPsm.ReadPropertyString(fjvFremDef.Distriktets_navn) == $"{curEtapeName}{HusnrSuffix}")
+                        if (fjvFremPsm.ReadPropertyString(line, fjvFremDef.Distriktets_navn) == $"{curEtapeName}{HusnrSuffix}")
                         {
                             line.CheckOrOpenForWrite();
                             line.Erase(true);
@@ -3222,8 +3318,7 @@ namespace IntersectUtilities.Dimensionering
 
                             //Populate graph values of objects
                             //Write values to parent block
-                            graphPsm.GetOrAttachPropertySet(buildingBlock);
-                            string children = graphPsm.ReadPropertyString(graphDef.Children);
+                            string children = graphPsm.ReadPropertyString(buildingBlock, graphDef.Children);
                             children += conLine.Handle.ToString() + ";";
                             graphPsm.WritePropertyString(graphDef.Children, children);
                             //Prepare values to write to husnr block
@@ -3542,10 +3637,9 @@ namespace IntersectUtilities.Dimensionering
                         #region Write PL children data
                         {
                             Polyline pline = nearest.ParentId.Go<Polyline>(tx);
-                            psManGraph.GetOrAttachPropertySet(pline);
-                            string currentChildren = psManGraph.ReadPropertyString(driDimGraphDef.Children);
+                            string currentChildren = psManGraph.ReadPropertyString(pline, driDimGraphDef.Children);
                             currentChildren += connection.Handle.ToString() + ";";
-                            psManGraph.WritePropertyString(driDimGraphDef.Children, currentChildren);
+                            psManGraph.WritePropertyString(pline, driDimGraphDef.Children, currentChildren);
                         }
                         #endregion
                     }
@@ -3757,8 +3851,7 @@ namespace IntersectUtilities.Dimensionering
                             nodes.Add(node);
 
                             //Write group and subgroup numbers
-                            fjvFremPsm.GetOrAttachPropertySet(node.Self);
-                            string strNrString = fjvFremPsm.ReadPropertyString(fjvFremDef.Bemærkninger);
+                            string strNrString = fjvFremPsm.ReadPropertyString(node.Self, fjvFremDef.Bemærkninger);
                             node.SetGroupAndPartNumbers(strNrString);
 
                             //Get the children
@@ -4198,7 +4291,7 @@ namespace IntersectUtilities.Dimensionering
                 }
 
                 //Preapare for linetype creation
-                LinetypeTable ltt = dimDb.LinetypeTableId.Go<LinetypeTable>(dimTx, (OpenMode)1); 
+                LinetypeTable ltt = dimDb.LinetypeTableId.Go<LinetypeTable>(dimTx, (OpenMode)1);
                 #endregion
 
                 #region PropertyData setup
@@ -4399,7 +4492,7 @@ namespace IntersectUtilities.Dimensionering
                             }
                             else if (system == PipeSystemEnum.PertFlextra) type = PipeTypeEnum.Twin;
                             else if (system == PipeSystemEnum.AquaTherm11)
-                            { 
+                            {
                                 if (dn < 160) type = PipeTypeEnum.Twin;
                                 else type = PipeTypeEnum.Frem;
                             }
@@ -4461,7 +4554,8 @@ namespace IntersectUtilities.Dimensionering
                             string lineTypeName = "LT-" + lineTypeText;
 
                             if (!ltt.Has(lineTypeName))
-                                createcomplexlinetypemethod(lineTypeName, lineTypeText, "Standard", dimDb);
+                                PlanDetailing.LineTypes.LineTypes.createltmethod(
+                                    lineTypeName, lineTypeText, "Standard", dimDb);
 
                             newPipe.LinetypeId = ltt[lineTypeName];
                             newPipe.Plinegen = true;
@@ -4503,13 +4597,14 @@ namespace IntersectUtilities.Dimensionering
                                     newPipe.Layer = layerName;
                                     newPipe.ConstantWidth = sizeArray[i].Kod / 1000.0;
 
-                                    string lineTypeText = 
+                                    string lineTypeText =
                                         PipeScheduleV2.PipeScheduleV2.GetLineTypeLayerPrefix(entry.System) +
                                         entry.DN.ToString();
                                     string lineTypeName = "LT-" + lineTypeText;
 
                                     if (!ltt.Has(lineTypeName))
-                                        createcomplexlinetypemethod(lineTypeName, lineTypeText, "Standard", dimDb);
+                                        PlanDetailing.LineTypes.LineTypes.createltmethod(
+                                            lineTypeName, lineTypeText, "Standard", dimDb);
 
                                     newPipe.LinetypeId = ltt[lineTypeName];
                                     newPipe.Plinegen = true;

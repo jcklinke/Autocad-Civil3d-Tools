@@ -1,11 +1,5 @@
 ﻿using DimensioneringV2.UI;
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
 namespace DimensioneringV2.Legend
 {
     internal static class LegendTitleProvider
@@ -19,18 +13,25 @@ namespace DimensioneringV2.Legend
                 MapPropertyEnum.CriticalPath => "Kritisk\nforbruger",
                 MapPropertyEnum.SubGraphId => $"Sub-graphs",
                 MapPropertyEnum.Pipe => "Rørdimensioner",
+                MapPropertyEnum.ManualDim => "Manuelt\ndimensionerede\nrør",
+                MapPropertyEnum.Address => "Adresser",
+                MapPropertyEnum.BygningsAnvendelseNyTekst => "Anvendelse, tekst",
+                MapPropertyEnum.BygningsAnvendelseNyKode => "Anvendelse, kode",
+                MapPropertyEnum.Nyttetimer => "Nyttetimer",
 
                 //Gradient theme
                 MapPropertyEnum.Bygninger => $"Bygninger\nforsynet\n[stk]",
                 MapPropertyEnum.Units => $"Enheder\nforsynet\n[stk]",
                 MapPropertyEnum.HeatingDemand => $"Estimeret\nvarmebehov\n[MWh/år]",
-                MapPropertyEnum.FlowSupply => $"Vandflow\nfrem [m³/h]",
-                MapPropertyEnum.FlowReturn => $"Vandflow\nretur [m³/h]",
+                MapPropertyEnum.DimFlowSupply => $"Vandflow\nfrem [m³/h]",
+                MapPropertyEnum.DimFlowReturn => $"Vandflow\nretur [m³/h]",
                 MapPropertyEnum.PressureGradientSupply => $"Trykgradient\nfrem [Pa/m]",
                 MapPropertyEnum.PressureGradientReturn => $"Trykgradient\nretur [Pa/m]",
                 MapPropertyEnum.VelocitySupply => $"Hastighed\nfrem [m/s]",
                 MapPropertyEnum.VelocityReturn => $"Hastighed\nretur [m/s]",
                 MapPropertyEnum.UtilizationRate => $"Udnyttelses-\nfaktor [%]",
+                MapPropertyEnum.TempDeltaVarme => "Afkøling rumvarme [°C]",
+                MapPropertyEnum.TempDeltaBV => "Afkøling brugsvand [°C]",
 
                 //Not used
                 MapPropertyEnum.Default => "Ledninger",

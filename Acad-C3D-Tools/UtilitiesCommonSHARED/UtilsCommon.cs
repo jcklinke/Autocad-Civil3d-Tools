@@ -1,4 +1,4 @@
-﻿using Autodesk.Aec.PropertyData.DatabaseServices;
+using Autodesk.Aec.PropertyData.DatabaseServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -18,35 +18,35 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Data;
-using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows.Automation;
 using System.Xml.Serialization;
 
 using static IntersectUtilities.PipeScheduleV2.PipeScheduleV2;
 using static IntersectUtilities.UtilsCommon.Utils;
+using FjvDynamicComponents = IntersectUtilities.UtilsCommon.DataManager.CsvData.FjvDynamicComponents;
 
 using AcRx = Autodesk.AutoCAD.Runtime;
-using Application = Autodesk.AutoCAD.ApplicationServices.Application;
+using Application = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 using BlockReference = Autodesk.AutoCAD.DatabaseServices.BlockReference;
+using Color = Autodesk.AutoCAD.Colors.Color;
 using DataTable = System.Data.DataTable;
 using DataType = Autodesk.Gis.Map.Constants.DataType;
 using DBObject = Autodesk.AutoCAD.DatabaseServices.DBObject;
-using DebugHelper = IntersectUtilities.UtilsCommon.Utils.DebugHelper;
 using Entity = Autodesk.AutoCAD.DatabaseServices.Entity;
 using ErrorStatus = Autodesk.AutoCAD.Runtime.ErrorStatus;
 using ObjectId = Autodesk.AutoCAD.DatabaseServices.ObjectId;
 using ObjectIdCollection = Autodesk.AutoCAD.DatabaseServices.ObjectIdCollection;
 using Oid = Autodesk.AutoCAD.DatabaseServices.ObjectId;
 using OpenMode = Autodesk.AutoCAD.DatabaseServices.OpenMode;
-using Color = Autodesk.AutoCAD.Colors.Color;
 
 namespace IntersectUtilities.UtilsCommon
 {
@@ -100,6 +100,76 @@ namespace IntersectUtilities.UtilsCommon
         /// </summary>
         public static double[] ToWGS84FromUtm32N(double[] coords, bool latlon = true) =>
             Extensions.ToWGS84FromUtm32N(new Point2d(coords[0], coords[1]), latlon);
+
+        /// <summary>
+        /// Converts WGS84 latitude/longitude to UTM32N easting/northing.
+        /// Returns array [easting, northing].
+        /// </summary>
+        /// <param name="lat">Latitude in degrees</param>
+        /// <param name="lon">Longitude in degrees</param>
+        /// <returns>Array [easting, northing] in meters</returns>
+        public static double[] ToUtm32NFromWGS84(double lat, double lon)
+        {
+            string zone = "32N";
+            int ZoneNumber = int.Parse(zone.Substring(0, zone.Length - 1));
+
+            double a = 6378137; // WGS-84 ellipsoid parameters
+            double eccSquared = 0.00669438;
+            double eccPrimeSquared = eccSquared / (1 - eccSquared);
+            double k0 = 0.9996; // UTM scale factor
+
+            double LongOrigin = (ZoneNumber - 1) * 6 - 180 + 3; // +3 puts origin in middle of zone
+
+            // Convert lat/lon to radians
+            double latRad = lat * Math.PI / 180.0;
+            double lonRad = lon * Math.PI / 180.0;
+            double lonOriginRad = LongOrigin * Math.PI / 180.0;
+
+            double N = a / Math.Sqrt(1 - eccSquared * Math.Sin(latRad) * Math.Sin(latRad));
+            double T = Math.Tan(latRad) * Math.Tan(latRad);
+            double C = eccPrimeSquared * Math.Cos(latRad) * Math.Cos(latRad);
+            double A = Math.Cos(latRad) * (lonRad - lonOriginRad);
+
+            double M = a * (
+                (1 - eccSquared / 4 - 3 * eccSquared * eccSquared / 64 - 5 * eccSquared * eccSquared * eccSquared / 256) * latRad
+                - (3 * eccSquared / 8 + 3 * eccSquared * eccSquared / 32 + 45 * eccSquared * eccSquared * eccSquared / 1024) * Math.Sin(2 * latRad)
+                + (15 * eccSquared * eccSquared / 256 + 45 * eccSquared * eccSquared * eccSquared / 1024) * Math.Sin(4 * latRad)
+                - (35 * eccSquared * eccSquared * eccSquared / 3072) * Math.Sin(6 * latRad)
+            );
+
+            double easting = k0 * N * (
+                A
+                + (1 - T + C) * A * A * A / 6
+                + (5 - 18 * T + T * T + 72 * C - 58 * eccPrimeSquared) * A * A * A * A * A / 120
+            ) + 500000.0; // False easting
+
+            double northing = k0 * (
+                M
+                + N * Math.Tan(latRad) * (
+                    A * A / 2
+                    + (5 - T + 9 * C + 4 * C * C) * A * A * A * A / 24
+                    + (61 - 58 * T + T * T + 600 * C - 330 * eccPrimeSquared) * A * A * A * A * A * A / 720
+                )
+            ); // False northing is 0 for Northern hemisphere
+
+            return new double[] { easting, northing };
+        }
+
+        /// <summary>
+        /// Converts WGS84 latitude/longitude to UTM32N easting/northing.
+        /// Input array can be [lat, lon] or [lon, lat] depending on latlon parameter.
+        /// Returns array [easting, northing].
+        /// </summary>
+        /// <param name="coords">Array containing lat/lon or lon/lat</param>
+        /// <param name="latlon">If true, coords are [lat, lon]; if false, coords are [lon, lat]</param>
+        /// <returns>Array [easting, northing] in meters</returns>
+        public static double[] ToUtm32NFromWGS84(double[] coords, bool latlon = true)
+        {
+            if (latlon)
+                return ToUtm32NFromWGS84(coords[0], coords[1]);
+            else
+                return ToUtm32NFromWGS84(coords[1], coords[0]);
+        }
 
         public static void prdDbg(string msg = "") =>
             Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\n" + msg);
@@ -262,10 +332,9 @@ namespace IntersectUtilities.UtilsCommon
         /// </summary>
         /// <param name="colorString"></param>
         /// <returns>Autocad Color, null on fail.</returns>
-        public static Color ParseColorString(string colorString)
+        public static Color ParseColorString(string? colorString)
         {
-            if (colorString.IsNoE())
-                return null;
+            if (colorString == null || colorString.IsNoE()) return Color.FromColorIndex(ColorMethod.ByAci, 0);
 
             Regex indexColorRegex = new Regex(@"^\d{1,3}$");
             Regex rgbRegex = new Regex(@"^(?<R>\d+)\*(?<G>\d+)\*(?<B>\d+)$");
@@ -500,207 +569,6 @@ namespace IntersectUtilities.UtilsCommon
             return startPoint.GetVectorTo(endPoint);
         }
 
-        public static void createcomplexlinetypemethod(
-            string lineTypeName,
-            string text,
-            string textStyleName,
-            Database db = null
-        )
-        {
-            if (text.Contains(" "))
-                throw new System.Exception("Text must not contain spaces!");
-
-            db ??= Application.DocumentManager.MdiActiveDocument.Database;
-            Transaction tx = db.TransactionManager.StartTransaction();
-            using (tx)
-            {
-                try
-                {
-                    // We'll use the textstyle table to access
-                    // the "Standard" textstyle for our text segment
-                    TextStyleTable tt = (TextStyleTable)
-                        tx.GetObject(db.TextStyleTableId, OpenMode.ForRead);
-                    // Get the linetype table from the drawing
-                    LinetypeTable ltt = (LinetypeTable)
-                        tx.GetObject(db.LinetypeTableId, OpenMode.ForWrite);
-                    // Get layer table
-                    LayerTable lt = tx.GetObject(db.LayerTableId, OpenMode.ForRead) as LayerTable;
-                    //**************************************
-                    //Change name of line type to create new and text value
-                    //**************************************
-                    prdDbg($"Remember to create text style: {textStyleName}!!!");
-                    if (tt.Has(textStyleName))
-                    {
-                        prdDbg("Text style exists!");
-                    }
-                    else
-                    {
-                        prdDbg($"Text style {textStyleName} DOES NOT exist!");
-                        tx.Abort();
-                        return;
-                    }
-                    List<string> layersToChange = new List<string>();
-                    if (ltt.Has(lineTypeName))
-                    {
-                        Oid existingId = ltt[lineTypeName];
-                        Oid placeHolderId = ltt["Continuous"];
-                        foreach (Oid oid in lt)
-                        {
-                            LayerTableRecord ltr = oid.Go<LayerTableRecord>(tx);
-                            if (ltr.LinetypeObjectId == existingId)
-                            {
-                                ltr.CheckOrOpenForWrite();
-                                ltr.LinetypeObjectId = placeHolderId;
-                                layersToChange.Add(ltr.Name);
-                            }
-                        }
-                        LinetypeTableRecord exLtr = existingId.Go<LinetypeTableRecord>(
-                            tx,
-                            OpenMode.ForWrite
-                        );
-                        exLtr.Erase(true);
-                    }
-                    // Create our new linetype table record...
-                    LinetypeTableRecord lttr = new LinetypeTableRecord();
-                    // ... and set its properties
-                    lttr.Name = lineTypeName;
-                    lttr.AsciiDescription = $"{text} ---- {text} ---- {text} ----";
-                    lttr.PatternLength = 0.9;
-                    //IsScaledToFit unsure what it does, can't see any difference
-                    lttr.IsScaledToFit = true;
-
-                    // A single line dash length
-                    double dL = 5;
-
-                    // A small horizontal buffer on each side of each character
-                    double textBuffer = 0.05;
-
-                    // Convert your text into individual characters
-                    char[] chars = text.ToCharArray();
-
-                    // We want:
-                    //   1) One line dash
-                    //   2) A dash per character (forward)
-                    //   3) Another line dash
-                    //   4) A dash per character (reversed)
-                    int dashCount = 2 + 2 * chars.Length;
-                    lttr.NumDashes = dashCount;
-
-                    // We need to measure each character to set dash lengths properly.
-                    Oid textStyleId = tt[textStyleName];
-                    var ts = new Autodesk.AutoCAD.GraphicsInterface.TextStyle();
-                    ts.FromTextStyleTableRecord(textStyleId);
-                    ts.TextSize = 0.9; // same size you used before
-
-                    // We'll track total pattern length to finalize lttr.PatternLength
-                    double totalPatternLen = 0;
-
-                    // -------------------------
-                    // DASH #0 : The first line
-                    // -------------------------
-                    lttr.SetDashLengthAt(0, dL);
-                    totalPatternLen += dL;
-
-                    // -----------------------------
-                    // FORWARD CHARACTERS (DASH #1+)
-                    // -----------------------------
-                    for (int i = 0; i < chars.Length; i++)
-                    {
-                        // This dash index is consecutive after dash 0
-                        int dashIndex = i + 1;
-
-                        // Measure the single character’s width
-                        string c = chars[i].ToString();
-                        var extBox = ts.ExtentsBox(c, true, false, null);
-                        double charWidth = (extBox.MaxPoint.X - extBox.MinPoint.X) + 0.1;
-                        // +0.1 just like your original code
-
-                        // Dash length is negative for text (shape) dash
-                        // We'll add 2*textBuffer horizontally so the dash has some padding
-                        double dashLen = -(charWidth + (2 * textBuffer));
-                        lttr.SetDashLengthAt(dashIndex, dashLen);
-
-                        // For shape-based text, you must set these:
-                        lttr.SetShapeStyleAt(dashIndex, textStyleId);
-                        lttr.SetShapeNumberAt(dashIndex, 0);
-                        lttr.SetShapeScaleAt(dashIndex, 0.9);
-                        lttr.SetShapeIsUcsOrientedAt(dashIndex, false);
-                        lttr.SetShapeRotationAt(dashIndex, 0);
-                        lttr.SetTextAt(dashIndex, c);
-
-                        // The shape offset must be local within the dash,
-                        // not relative to the entire pattern.
-                        // We place it near the left side: -(charWidth - textBuffer)
-                        lttr.SetShapeOffsetAt(
-                            dashIndex,
-                            new Vector2d(-(charWidth - textBuffer), -0.45)
-                        );
-
-                        // Accumulate pattern length (absolute value of dashLen)
-                        totalPatternLen += (charWidth + 2 * textBuffer);
-                    }
-
-                    // -----------------------
-                    // Next line dash
-                    // -----------------------
-                    int lineDashIndex2 = 1 + chars.Length;
-                    lttr.SetDashLengthAt(lineDashIndex2, dL);
-                    totalPatternLen += dL;
-
-                    // ------------------------------------
-                    // ROTATED CHARACTERS (DASH #...)
-                    // ------------------------------------
-                    int reverseStartIndex = lineDashIndex2 + 1;
-                    for (int i = 0; i < chars.Length; i++)
-                    {
-                        int dashIndex = reverseStartIndex + i;
-
-                        // Same character measurement
-                        string c = chars[chars.Length - 1 - i].ToString();
-                        var extBox = ts.ExtentsBox(c, true, false, null);
-                        double charWidth = (extBox.MaxPoint.X - extBox.MinPoint.X) + 0.1;
-
-                        double dashLen = -(charWidth + (2 * textBuffer));
-                        lttr.SetDashLengthAt(dashIndex, dashLen);
-
-                        lttr.SetShapeStyleAt(dashIndex, textStyleId);
-                        lttr.SetShapeNumberAt(dashIndex, 0);
-                        lttr.SetShapeScaleAt(dashIndex, 0.9);
-                        lttr.SetShapeIsUcsOrientedAt(dashIndex, false);
-
-                        // Rotation 180° for reversed text
-                        lttr.SetShapeRotationAt(dashIndex, Math.PI);
-                        lttr.SetTextAt(dashIndex, c);
-
-                        // Offset is local to the dash. We'll place it near the
-                        // “other end” of the dash: -textBuffer in X, etc.
-                        lttr.SetShapeOffsetAt(dashIndex, new Vector2d(-textBuffer, 0.45));
-
-                        totalPatternLen += (charWidth + 2 * textBuffer);
-                    }
-
-                    // Finalize overall pattern length
-                    lttr.PatternLength = totalPatternLen;
-
-                    // Add the new linetype to the linetype table
-                    Oid ltId = ltt.Add(lttr);
-                    tx.AddNewlyCreatedDBObject(lttr, true);
-                    foreach (string name in layersToChange)
-                    {
-                        Oid ltrId = lt[name];
-                        LayerTableRecord ltr = ltrId.Go<LayerTableRecord>(tx, OpenMode.ForWrite);
-                        ltr.LinetypeObjectId = ltId;
-                    }
-                }
-                catch (System.Exception ex)
-                {
-                    tx.Abort();
-                    prdDbg(ex);
-                }
-                tx.Commit();
-            }
-        }
-        
         public static class DebugHelper
         {
             /// <param name="color">byblock, red, yellow, green, cyan, blue, magenta, white, grey, bylayer</param>
@@ -775,21 +643,13 @@ namespace IntersectUtilities.UtilsCommon
                 { "Lige afgrening", PipelineElementType.LigeAfgrening },
                 { "Parallelafgrening", PipelineElementType.AfgreningParallel },
                 { "Præisoleret bøjning, 90gr", PipelineElementType.PræisoleretBøjning90gr },
+                { "Præisoleret bøjning, 45gr", PipelineElementType.PræisoleretBøjning45gr },
                 { "Bøjning, 45gr", PipelineElementType.Bøjning45gr },
                 { "Bøjning, 30gr", PipelineElementType.Bøjning30gr },
                 { "Bøjning, 15gr", PipelineElementType.Bøjning15gr },
-                {
-                    "$Præisoleret bøjning, L {$L1}x{$L2} m, V {$V}°",
-                    PipelineElementType.PræisoleretBøjningVariabel
-                },
-                {
-                    "$Præisoleret bøjning, 90gr, L {$L1}x{$L2} m",
-                    PipelineElementType.PræisoleretBøjningVariabel
-                },
-                {
-                    "Præisoleret bøjning, L {$L1}x{$L2} m, V {$V}°",
-                    PipelineElementType.PræisoleretBøjningVariabel
-                },
+                { "$Præisoleret bøjning, L {$L1}x{$L2} m, V {$V}°", PipelineElementType.PræisoleretBøjningVariabel },
+                { "$Præisoleret bøjning, 90gr, L {$L1}x{$L2} m", PipelineElementType.PræisoleretBøjningVariabel },
+                { "Præisoleret bøjning, L {$L1}x{$L2} m, V {$V}°", PipelineElementType.PræisoleretBøjningVariabel },
                 { "Præisoleret ventil", PipelineElementType.PræisoleretVentil },
                 { "Præventil med udluftning", PipelineElementType.PræventilMedUdluftning },
                 { "Reduktion", PipelineElementType.Reduktion },
@@ -798,6 +658,7 @@ namespace IntersectUtilities.UtilsCommon
                 { "Svejsning", PipelineElementType.Svejsning },
                 { "Y-Model", PipelineElementType.Y_Model },
                 { "$Buerør V{$Vinkel}° R{$R} L{$L}", PipelineElementType.Buerør },
+                { "Buerør V{$Vinkel}° R{$R} L{$L}", PipelineElementType.Buerør },
                 { "Stikafgrening", PipelineElementType.Stikafgrening },
                 { "Muffetee", PipelineElementType.Muffetee },
                 { "Preskobling tee", PipelineElementType.Muffetee },
@@ -2305,7 +2166,7 @@ namespace IntersectUtilities.UtilsCommon
 
         public static bool CheckIfBlockIsLatestVersion(this BlockReference br)
         {
-            System.Data.DataTable dt = CsvData.FK;
+            var fk = DataManager.CsvData.Csv.FjvDynamicComponents;
             Database Db = br.Database;
             if (Db.TransactionManager.TopTransaction == null)
                 throw new System.Exception("CheckIfBlockLatestVersion called outside transaction!");
@@ -2335,12 +2196,12 @@ namespace IntersectUtilities.UtilsCommon
             #endregion
 
             #region Determine latest version
-            var query = dt.AsEnumerable()
-                .Where(x => x["Navn"].ToString() == br.RealName())
-                .Select(x => x["Version"].ToString())
+            var query = fk.Rows
+                .Where(row => FjvDynamicComponents.Col(row, FjvDynamicComponents.Columns.Navn) == br.RealName())
+                .Select(row => FjvDynamicComponents.Col(row, FjvDynamicComponents.Columns.Version))
                 .Select(x =>
                 {
-                    if (x == "")
+                    if (string.IsNullOrEmpty(x))
                         return "1";
                     else
                         return x;
@@ -3096,6 +2957,8 @@ namespace IntersectUtilities.UtilsCommon
 
         public static Point3d MidPoint(this Point3d p1, Point3d p2) =>
             new Point3d((p1.X + p2.X) / 2, (p1.Y + p2.Y) / 2, (p1.Z + p2.Z) / 2);
+        public static Point3d Z(this Point3d p, double z) => new Point3d(p.X, p.Y, z);
+        public static Point3d ModZ(this Point3d p, double deltaZ) => new Point3d(p.X, p.Y, p.Z + deltaZ);
 
         /// <summary>
         /// 2D key for use in dictionaries for faster points lookup.
@@ -3996,7 +3859,7 @@ namespace IntersectUtilities.UtilsCommon
 
     public static class ExtensionMethods
     {
-        public static T Go<T>(
+        public static T? Go<T>(
             this Oid oid,
             Transaction tx,
             Autodesk.AutoCAD.DatabaseServices.OpenMode openMode =
@@ -4008,7 +3871,7 @@ namespace IntersectUtilities.UtilsCommon
             return obj as T;
         }
 
-        public static T Go<T>(this Handle handle, Database database)
+        public static T? Go<T>(this Handle handle, Database database)
             where T : Autodesk.AutoCAD.DatabaseServices.DBObject
         {
             Oid id = database.GetObjectId(false, handle, 0);
@@ -4019,7 +3882,7 @@ namespace IntersectUtilities.UtilsCommon
             return id.Go<T>(database.TransactionManager.TopTransaction);
         }
 
-        public static T Go<T>(this Database db, string handle)
+        public static T? Go<T>(this Database db, string handle)
             where T : Autodesk.AutoCAD.DatabaseServices.DBObject
         {
             Handle h = new Handle(Convert.ToInt64(handle, 16));
@@ -4254,6 +4117,49 @@ namespace IntersectUtilities.UtilsCommon
             return result;
         }
 
+        public static HashSet<Oid> HashSetOfIds<T>(this Database db, bool discardFrozen = true)
+        {
+            if (db.TransactionManager.TopTransaction != null)
+                throw new System.Exception(
+                    "HashSetOfFjvPipeIds must be used outside of Transaction!"
+                );
+
+            HashSet<Oid> result = new HashSet<Oid>();
+
+            var bt = db.BlockTableId.Open(OpenMode.ForRead) as BlockTable;
+            var ms = bt[BlockTableRecord.ModelSpace].Open(OpenMode.ForRead) as BlockTableRecord;
+            var lt = db.LayerTableId.Open(OpenMode.ForRead) as LayerTable;
+
+            foreach (Oid oid in ms)
+            {
+                if (oid.IsDerivedFrom<T>())
+                {
+                    if (discardFrozen)
+                    {
+                        Entity ent = oid.Open(OpenMode.ForRead) as Entity;
+                        var ltr = lt[ent.Layer].Open(OpenMode.ForRead) as LayerTableRecord;
+
+                        if (!(ltr.IsFrozen && discardFrozen)) result.Add(oid);
+
+                        ltr.Close();
+                        ltr.Dispose();
+                        ent.Close();
+                        ent.Dispose();
+                    }
+                    else result.Add(oid);                    
+                }
+            }
+
+            //lt.Close();
+            //lt.Dispose();
+            ms.Close();
+            ms.Dispose();
+            bt.Close();
+            bt.Dispose();
+
+            return result;
+        }
+
         public static HashSet<Oid> HashSetIdsOfType<T>(this Database db)
             where T : Autodesk.AutoCAD.DatabaseServices.Entity
         {
@@ -4352,6 +4258,48 @@ namespace IntersectUtilities.UtilsCommon
             return objs;
         }
 
+        public static HashSet<T> HashSetOfTypeWithPs<T>(
+    this Database db,
+    Transaction tr, PSetDefs.DefinedSets ps,
+    bool discardFrozen = false
+)
+    where T : Autodesk.AutoCAD.DatabaseServices.Entity
+        {
+            //Init the list of the objects
+            List<T> objs = new();
+
+            // Get the block table for the current database
+            var blockTable = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+
+            // Get the model space block table record
+            var modelSpace = (BlockTableRecord)
+                tr.GetObject(blockTable[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+
+            RXClass theClass = RXObject.GetClass(typeof(T));
+
+            // Loop through the entities in model space
+            foreach (Oid oid in modelSpace)
+            {
+                // Look for entities of the correct type
+                if (oid.ObjectClass.IsDerivedFrom(theClass))
+                {
+                    var entity = (T)tr.GetObject(oid, OpenMode.ForRead);
+                    if (discardFrozen)
+                    {
+                        LayerTableRecord layer = (LayerTableRecord)
+                            tr.GetObject(entity.LayerId, OpenMode.ForRead);
+                        if (layer.IsFrozen)
+                            continue;
+                    }
+
+                    objs.Add(entity);
+                }
+            }
+
+            return objs.Where(
+                x => PropertySetManager.IsPropertySetAttached(x, ps)).ToHashSet();
+        }
+
         public static HashSet<Entity> GetFjvEntities(
             this Database db,
             Transaction tr,
@@ -4360,7 +4308,7 @@ namespace IntersectUtilities.UtilsCommon
             bool discardFrozen = false
         )
         {
-            System.Data.DataTable dt = CsvData.FK;
+            var fk = DataManager.CsvData.Csv.FjvDynamicComponents;
 
             HashSet<Entity> entities = new HashSet<Entity>();
 
@@ -4370,10 +4318,7 @@ namespace IntersectUtilities.UtilsCommon
             );
 
             var rawBrefs = db.ListOfType<BlockReference>(tr, discardFrozen);
-            var brQuery = rawBrefs.Where(x =>
-                UtilsDataTables.ReadStringParameterFromDataTable(x.RealName(), dt, "Navn", 0)
-                != default
-            );
+            var brQuery = rawBrefs.Where(x => fk.HasNavn(x.RealName()));
 
             HashSet<string> weldingBlocks = new HashSet<string>()
             {
@@ -4399,23 +4344,17 @@ namespace IntersectUtilities.UtilsCommon
         public static HashSet<BlockReference> GetFjvBlocks(
             this Database db,
             Transaction tr,
-            System.Data.DataTable fjvKomponenter,
             bool discardWelds = true,
             bool discardStikBlocks = true,
             bool discardFrozen = false
         )
         {
+            var fk = DataManager.CsvData.Csv.FjvDynamicComponents;
+
             HashSet<BlockReference> entities = new HashSet<BlockReference>();
 
             var rawBrefs = db.ListOfType<BlockReference>(tr, discardFrozen);
-            var brQuery = rawBrefs.Where(x =>
-                UtilsDataTables.ReadStringParameterFromDataTable(
-                    x.RealName(),
-                    fjvKomponenter,
-                    "Navn",
-                    0
-                ) != default
-            );
+            var brQuery = rawBrefs.Where(x => fk.HasNavn(x.RealName()));
 
             HashSet<string> weldingBlocks = new HashSet<string>()
             {
@@ -4541,7 +4480,7 @@ namespace IntersectUtilities.UtilsCommon
         }
 
         public static DoubleCollection ToDoubleCollection(this IEnumerable<double> list) =>
-            new DoubleCollection(list.ToArray());        
+            new DoubleCollection(list.ToArray());
     }
 
     public class PointDBHorizontalComparer : IEqualityComparer<DBPoint>
@@ -4657,139 +4596,7 @@ namespace IntersectUtilities.UtilsCommon
         }
     }
 
-    public static class CsvData
-    {
-        private static readonly Dictionary<string, (DataTable data, DateTime lastModified)> cache =
-            new Dictionary<string, (DataTable data, DateTime lastModified)>();
-        private static readonly Dictionary<string, string> csvs = new Dictionary<string, string>();
-
-        static CsvData()
-        {
-            if (!File.Exists(@"X:\AutoCAD DRI - 01 Civil 3D\_csv_register.csv"))
-                throw new FileNotFoundException("CSV register not found!");
-
-            var lines = File.ReadAllLines(
-                    @"X:\AutoCAD DRI - 01 Civil 3D\_csv_register.csv",
-                    Encoding.UTF8
-                )
-                .Skip(1);
-
-            foreach (var line in lines)
-            {
-                var split = line.Split(';');
-                csvs.Add(split[0], split[1]);
-            }
-
-            foreach (var item in csvs)
-                LoadCsvFile(item.Key, item.Value);
-        }
-
-        private static void LoadCsvFile(string name, string path)
-        {
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"File {path} does not exist!");
-
-            DateTime lastWriteTime = File.GetLastWriteTimeUtc(path);
-            DataTable dt = CsvReader.ReadCsvToDataTable(path, name);
-            cache.Add(name, (dt, lastWriteTime));
-        }
-
-        private static DataTable GetDataTable(string name)
-        {
-            if (csvs.ContainsKey(name))
-            {
-                var path = csvs[name];
-                if (cache.ContainsKey(name))
-                {
-                    var cached = cache[name];
-                    var lastWriteTime = File.GetLastWriteTimeUtc(path);
-
-#if DEBUG
-                    //prdDbg($"Cached last modified: {cached.lastModified}\n" +
-                    //                           $"File last modified: {lastWriteTime}");
-#endif
-
-                    if (cached.lastModified < lastWriteTime)
-                    {
-                        prdDbg($"Csv file {name} has been updated! Loading new version.");
-                        cache.Remove(name);
-                        LoadCsvFile(name, path);
-                        return cache[name].data;
-                    }
-                    else
-                        return cached.data;
-                }
-                else
-                {
-                    LoadCsvFile(name, path);
-                    return cache[name].data;
-                }
-            }
-            else
-                throw new System.Exception($"Csv name {name} not defined!\nUpdate registration.");
-        }
-
-        ///<summary>
-        ///Stier til projektfiler
-        ///</summary>
-        public static DataTable Stier => GetDataTable("stier");
-
-        /// <summary>
-        /// Fjernvarme komponenter
-        /// </summary>
-        public static DataTable FK
-        {
-            get => GetDataTable("fjvKomponenter");
-        }
-
-        /// <summary>
-        /// Krydsninger
-        /// </summary>
-        public static DataTable Kryds
-        {
-            get => GetDataTable("krydsninger");
-        }
-
-        /// <summary>
-        /// Dybde
-        /// </summary>
-        public static DataTable Dybde
-        {
-            get => GetDataTable("dybde");
-        }
-
-        /// <summary>
-        /// Distances
-        /// </summary>
-        public static DataTable Dist
-        {
-            get => GetDataTable("distances");
-        }
-
-        /// <summary>
-        /// Installation og brændsel
-        /// </summary>
-        public static DataTable InstOgBrændsel
-        {
-            get => GetDataTable("instogbr");
-        }
-
-        /// <summary>
-        /// Anvendelseskoder for bygninger fra BBR registeret
-        /// </summary>
-        public static DataTable AnvKoder
-        {
-            get => GetDataTable("AnvKoder");
-        }
-
-        /// <summary>
-        /// Anvendelseskoder for enheder fra BBR registeret
-        /// </summary>
-        public static DataTable EnhKoder
-        {
-            get => GetDataTable("EnhKoder");
-        }
-    }
+    // Old CsvData class removed - use IntersectUtilities.UtilsCommon.DataManager.CsvData.Csv instead
 
     public static class AutocadColors
     {
@@ -4965,6 +4772,80 @@ namespace IntersectUtilities.UtilsCommon
             {
                 this.Data[nameof(PointsToMark)] = PointsToMark;
             }
+        }
+    }
+
+    public static class ModalDialogDismisser
+    {
+        /// <summary>
+        /// Arms a timer that will automatically click the OK button on a modal dialog.
+        /// Call this BEFORE invoking a command that shows a modal dialog.
+        /// </summary>
+        /// <param name="dialogTitle">Title of the dialog window to find</param>
+        /// <param name="intervalMs">Timer tick interval in milliseconds</param>
+        /// <param name="timeoutMs">Maximum time to wait for dialog before throwing</param>
+        public static void ArmOkButtonDismisser(
+            string dialogTitle = "Project Objects To Profile View",
+            int intervalMs = 500,
+            int timeoutMs = 10000)
+        {
+            int elapsed = 0;
+            System.Threading.Timer? timer = null;
+
+            timer = new System.Threading.Timer(_ =>
+            {
+                elapsed += intervalMs;
+
+                IntPtr hwnd = Autodesk.AutoCAD.ApplicationServices
+                    .Application.MainWindow.Handle;
+                var mainWindow = AutomationElement.FromHandle(hwnd);
+
+                if (mainWindow == null)
+                {
+                    if (elapsed >= timeoutMs)
+                    {
+                        timer?.Change(Timeout.Infinite, Timeout.Infinite);
+                        timer?.Dispose();
+                        throw new InvalidOperationException(
+                            "ModalDialogDismisser: Main AutoCAD window not found.");
+                    }
+                    return; // Retry on next tick
+                }
+
+                // Try to find the dialog window by its title
+                var dialog = mainWindow.FindFirst(
+                    TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.NameProperty, dialogTitle));
+
+                if (dialog == null)
+                {
+                    if (elapsed >= timeoutMs)
+                    {
+                        timer?.Change(Timeout.Infinite, Timeout.Infinite);
+                        timer?.Dispose();
+                        throw new InvalidOperationException(
+                            $"ModalDialogDismisser: Dialog '{dialogTitle}' not found " +
+                            $"after {timeoutMs / 1000} seconds.");
+                    }
+                    return; // Retry on next tick
+                }
+
+                // Dialog found - now find and click OK button
+                timer?.Change(Timeout.Infinite, Timeout.Infinite);
+                timer?.Dispose();
+
+                var okButton = dialog.FindFirst(
+                    TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.NameProperty, "OK"));
+
+                if (okButton == null)
+                    throw new InvalidOperationException(
+                        $"ModalDialogDismisser: OK button not found in dialog '{dialogTitle}'.");
+
+                var invokePattern = okButton.GetCurrentPattern(InvokePattern.Pattern)
+                    as InvokePattern;
+                invokePattern?.Invoke();
+            }, null, intervalMs, intervalMs);
         }
     }
 }

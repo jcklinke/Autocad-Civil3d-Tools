@@ -14,6 +14,10 @@ using System.Threading.Tasks;
 using Autodesk.AutoCAD.Geometry;
 using IntersectUtilities.DynamicBlocks;
 using IntersectUtilities;
+using IntersectUtilities.UtilsCommon.DataManager.CsvData;
+
+using BlockReference = Autodesk.AutoCAD.DatabaseServices.BlockReference;
+using Entity = Autodesk.AutoCAD.DatabaseServices.Entity;
 
 namespace ExportShapeFiles
 {
@@ -99,13 +103,13 @@ namespace ExportShapeFiles
             if (!(entity is BlockReference br))
                 throw new ArgumentException($"Entity {entity.Handle} is not a block reference!");
 
-            var dt = CsvData.FK;
+            var fk = Csv.FjvDynamicComponents;
 
             var props = new AttributesTable
             {
                 { "BlockName", br.RealName() },
                 { "BlockType", br.ReadDynamicCsvProperty(DynamicProperty.Type) },
-                { "Rotation", ComponentSchedule.ReadBlockRotation(br, dt) },
+                { "Rotation", ComponentSchedule.ReadBlockRotation(br, fk) },
                 { "System", br.ReadDynamicCsvProperty(DynamicProperty.SysNavn) },
                 { "Type", br.ReadDynamicCsvProperty(DynamicProperty.System) },
                 { "DN1", br.ReadDynamicCsvProperty(DynamicProperty.DN1) },
@@ -119,5 +123,5 @@ namespace ExportShapeFiles
 
             return new Feature(geom, props);
         }
-    }
+    }    
 }

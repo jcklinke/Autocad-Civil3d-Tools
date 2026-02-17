@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -22,6 +22,7 @@ using IntersectUtilities.PipelineNetworkSystem;
 using IntersectUtilities.PipelineNetworkSystem.PipelineSizeArray;
 using IntersectUtilities.UtilsCommon;
 using IntersectUtilities.UtilsCommon.DataManager;
+using IntersectUtilities.UtilsCommon.DataManager.CsvData;
 using IntersectUtilities.UtilsCommon.Enums;
 using IntersectUtilities.UtilsCommon.Graphs;
 
@@ -270,12 +271,45 @@ namespace IntersectUtilities
         [CommandMethod("CREATESURFACEPROFILES")]
         public void createsurfaceprofiles()
         {
-            createsurfaceprofilesmethod();
+            DocumentCollection docCol = Application.DocumentManager;
+            Database db = docCol.MdiActiveDocument.Database;
+
+            DataReferencesOptions dro = new DataReferencesOptions();
+            var dm = new DataManager(dro);
+
+            using Database xRefSurfaceDB = dm.Surface();
+            prdDbg(xRefSurfaceDB.Filename);
+            using Transaction xRefSurfaceTx = xRefSurfaceDB.TransactionManager.StartTransaction();
+
+            using Transaction tx = db.TransactionManager.StartTransaction();            
+            var allAlignments = db.ListOfType<Alignment>(tx).OrderBy(x => x.Name).ToList();
+
+            try
+            {
+                var surface =
+                    xRefSurfaceDB.HashSetOfType<TinSurface>(xRefSurfaceTx).FirstOrDefault()
+                    as CivSurface;
+
+                if (surface == null)
+                {
+                    prdDbg("Surface could not be loaded!");
+                    return;
+                }
+
+                createsurfaceprofilesmethod(dro, allAlignments, surface);
+            }
+            catch (System.Exception ex)
+            {
+                tx.Abort();
+                return;
+            }
+            tx.Commit();
         }
 
         private void createsurfaceprofilesmethod(
-            DataReferencesOptions? dro = null,
-            List<Alignment>? allAlignments = null
+            DataReferencesOptions dro,
+            List<Alignment> allAlignments,
+            CivSurface surface
         )
         {
             DocumentCollection docCol = Application.DocumentManager;
@@ -298,38 +332,8 @@ namespace IntersectUtilities
 
                 var dm = new DataManager(dro);
 
-                #region Read surface from file
-                // open the xref database
-                using Database xRefSurfaceDB = dm.Surface();
-                using Transaction xRefSurfaceTx = xRefSurfaceDB.TransactionManager.StartTransaction();
-
-                prdDbg(xRefSurfaceDB.Filename);
-
-                CivSurface? surface = null;
                 try
                 {
-                    surface =
-                        xRefSurfaceDB.HashSetOfType<TinSurface>(xRefSurfaceTx).FirstOrDefault()
-                        as CivSurface;
-                }
-                catch (System.Exception)
-                {
-                    throw;
-                }
-
-                if (surface == null)
-                {
-                    editor.WriteMessage("\nSurface could not be loaded from the xref!");
-                    xRefSurfaceTx.Commit();
-                    return;
-                }
-                #endregion
-
-                try
-                {
-                    if (allAlignments == null)
-                        allAlignments = db.ListOfType<Alignment>(tx).OrderBy(x => x.Name).ToList();
-
                     #region Create surface profiles
 
                     #region Get terrain layer id
@@ -391,11 +395,14 @@ namespace IntersectUtilities
                                     profileLabelSetStyleId
                                 );
                             }
-                            catch (System.Exception)
+                            catch (System.Exception ex)
                             {
-                                prdDbg(alignment.Name + "failed!");
+                                prdDbg(alignment.Name + " failed!");
+                                prdDbg(ex);
                                 continue;
                             }
+
+
                             editor.WriteMessage($"\nSurface profile created for {alignment.Name}.");
                         }
 
@@ -405,16 +412,10 @@ namespace IntersectUtilities
                 }
                 catch (System.Exception ex)
                 {
-                    xRefSurfaceTx.Abort();
-                    xRefSurfaceTx.Dispose();
-                    xRefSurfaceDB.Dispose();
                     tx.Abort();
                     prdDbg(ex);
                     return;
                 }
-                xRefSurfaceTx.Commit();
-                xRefSurfaceTx.Dispose();
-                xRefSurfaceDB.Dispose();
                 tx.Commit();
             }
         }
@@ -548,13 +549,30 @@ namespace IntersectUtilities
         public void createlerdatapss()
         {
             DataReferencesOptions dro = new DataReferencesOptions();
-            createlerdatapssmethod2(dro);
+            DataManager dm = new(dro);
+            using var surfaceDb = dm.Surface();
+            using Transaction surfaceTx = surfaceDb.TransactionManager.StartTransaction();
+
+            CivSurface? surface = surfaceDb
+                .HashSetOfType<TinSurface>(surfaceTx)
+                .FirstOrDefault();
+
+            if (surface != null)
+            {
+                createlerdatapssmethod2(dro, surface);
+            }
+            else
+            {
+                prdDbg("Surface could not be loaded!");
+            }
+
+            surfaceTx.Abort();
         }
 
         public void createlerdatapssmethod2(
             DataReferencesOptions dro,
-            List<Alignment>? allAlignments = null
-        )
+            CivSurface surface,
+            List<Alignment>? allAlignments = null)
         {
             DocumentCollection docCol = Application.DocumentManager;
             Database localDb = docCol.MdiActiveDocument.Database;
@@ -572,8 +590,6 @@ namespace IntersectUtilities
             );
 
             DataManager dm = new(dro);
-            using Database surfaceDb = dm.Surface();
-            using Transaction surfaceTx = surfaceDb.TransactionManager.StartTransaction();
 
             using Database fjvDb = dm.Fremtid();
             using Transaction fjvTx = fjvDb.TransactionManager.StartTransaction();
@@ -585,33 +601,6 @@ namespace IntersectUtilities
 
             string projectName = dro.ProjectName;
             string etapeName = dro.EtapeName;
-
-            #region Read surface from file
-            CivSurface? surface = null;
-            try
-            {
-                surface =
-                    surfaceDb.HashSetOfType<TinSurface>(surfaceTx).FirstOrDefault() as CivSurface;
-            }
-            catch (System.Exception)
-            {
-                surfaceTx.Abort();
-                fjvTx.Abort();
-                alTx.Abort();
-                tx.Abort();
-                return;
-            }
-
-            if (surface == null)
-            {
-                editor.WriteMessage("\nSurface could not be loaded from the xref!");
-                surfaceTx.Abort();
-                fjvTx.Abort();
-                alTx.Abort();
-                tx.Abort();
-                return;
-            }
-            #endregion
 
             #region Load LER data
             ILer3dManager lman = Ler3dManagerFactory.LoadLer3d(dm);
@@ -645,12 +634,12 @@ namespace IntersectUtilities
                 #endregion
 
                 #region Read Csv Data for Layers and Depth
-                var dtKrydsninger = CsvData.Kryds;
+                var krydsninger = Csv.Krydsninger;
                 //Build the LerTypeResolution dictionary
-                var lerTypeResolver = LerTypeResolverFactory.CreateFromDataTable(dtKrydsninger);
+                var lerTypeResolver = LerTypeResolverFactory.Create(krydsninger);
                 var relocabilityService = RuleFactory.CreateDefaultService();
 
-                var dtDybde = CsvData.Dybde;
+                var dybde = Csv.Dybde;
                 #endregion
 
                 #region Delete existing points
@@ -750,12 +739,7 @@ namespace IntersectUtilities
 
                         #region Read data parameters from csvs
                         //Read 'Type' value
-                        string type = ReadStringParameterFromDataTable(
-                            ent.Layer,
-                            dtKrydsninger,
-                            "Type",
-                            0
-                        );
+                        string type = krydsninger.Type(ent.Layer) ?? "";
                         if (type.IsNoE())
                         { //Exit, if a layer is not defined in Krydsninger.csv
                             prdDbg(
@@ -764,7 +748,6 @@ namespace IntersectUtilities
                             );
                             lman.Dispose(true);
                             tx.Abort();
-                            surfaceTx.Abort();
                             fjvTx.Abort();
                             alTx.Abort();
                             return;
@@ -774,28 +757,27 @@ namespace IntersectUtilities
                         double depth = 0;
                         if (!type.IsNoE())
                         {
-                            depth = ReadDoubleParameterFromDataTable(type, dtDybde, "Dybde", 0);
+                            depth = dybde.GetDybdeDouble(type);
+                        }
+
+                        // Helper to strip -2D and -3D suffixes from layer names for LagLer lookup
+                        static string StripSuffix(string? layerName)
+                        {
+                            if (string.IsNullOrEmpty(layerName)) return string.Empty;
+                            if (layerName.EndsWith("-2D")) return layerName[..^3];
+                            if (layerName.EndsWith("-3D")) return layerName[..^3];
+                            return layerName;
                         }
 
                         //Read layer value for the object
-                        string localPointLayerName = ReadStringParameterFromDataTable(
-                            ent.Layer,
-                            dtKrydsninger,
-                            "Layer",
-                            0
-                        );
+                        string localPointLayerName = StripSuffix(ent.Layer);
 
                         //Read UtilityCategory for Relocability
                         LerType lerCat = lerTypeResolver.Resolve(ent.Layer);
                         #endregion
 
                         #region Populate description field
-                        string descrFromKrydsninger = ReadStringParameterFromDataTable(
-                            ent.Layer,
-                            dtKrydsninger,
-                            "Description",
-                            0
-                        );
+                        string descrFromKrydsninger = krydsninger.Description(ent.Layer) ?? "";
 
                         //Guard against empty descriptions
                         //All descriptions must contain some information
@@ -810,7 +792,6 @@ namespace IntersectUtilities
                             );
                             lman.Dispose(true);
                             tx.Abort();
-                            surfaceTx.Abort();
                             fjvTx.Abort();
                             alTx.Abort();
                             return;
@@ -819,7 +800,7 @@ namespace IntersectUtilities
                         string description = ProcessDescription(
                             ent,
                             descrFromKrydsninger,
-                            dtKrydsninger
+                            krydsninger
                         );
                         #endregion
 
@@ -845,11 +826,8 @@ namespace IntersectUtilities
                             string kote = "";
                             if (type != "3D")
                             {
-                                var intPoint = surface.GetIntersectionPoint(
-                                    new Point3d(p3d.X, p3d.Y, -99.0),
-                                    new Vector3d(0, 0, 1)
-                                );
-                                zElevation = intPoint.Z;
+
+                                zElevation = surface.FindElevationAtXY(p3d.X, p3d.Y);
 
                                 //Subtract the depth (if invalid it is zero, so no modification will occur)
                                 zElevation -= depth;
@@ -935,12 +913,7 @@ namespace IntersectUtilities
 
                             #region Populate DriCrossingData property set
                             //Fetch diameter definitions if any
-                            string diaDef = ReadStringParameterFromDataTable(
-                                ent.Layer,
-                                dtKrydsninger,
-                                "Diameter",
-                                0
-                            );
+                            string diaDef = krydsninger.Diameter(ent.Layer) ?? "";
 
                             int diameter = 0;
                             if (diaDef.IsNotNoE())
@@ -1052,7 +1025,6 @@ namespace IntersectUtilities
                         prdDbg($"No profile named {al.Name}_surface_P found!");
                         lman.Dispose(true);
                         tx.Abort();
-                        surfaceTx.Abort();
                         fjvTx.Abort();
                         alTx.Abort();
                         return;
@@ -1213,7 +1185,9 @@ namespace IntersectUtilities
 
                         editor.SetImpliedSelection(selection);
                         prdDbg("");
-                        editor.Command("_AeccProjectObjectsToProf", pv.ObjectId);
+                        // Arm UIA to dismiss the modal for this command invocation
+                        ModalDialogDismisser.ArmOkButtonDismisser();
+                        editor.Command("._AeccProjectObjectsToProf", pv.ObjectId);
                     }
                     #endregion
                     #endregion
@@ -1224,7 +1198,6 @@ namespace IntersectUtilities
             {
                 lman.Dispose(true);
 
-                surfaceTx.Abort();
                 fjvTx.Abort();
                 alTx.Abort();
                 prdDbg(ex);
@@ -1232,7 +1205,6 @@ namespace IntersectUtilities
             }
             lman.Dispose(true);
             tx.Commit();
-            surfaceTx.Abort();
             fjvTx.Abort();
             alTx.Abort();
         }
@@ -1353,7 +1325,7 @@ namespace IntersectUtilities
                 try
                 {
                     #region Read Csv Data for Layers
-                    var dtKrydsninger = CsvData.Kryds;
+                    var krydsninger = Csv.Krydsninger;
                     #endregion
 
                     BlockTableRecord space = (BlockTableRecord)
@@ -1488,12 +1460,7 @@ namespace IntersectUtilities
                                 psm.ReadPropertyString(fEnt, dcd.SourceEntityHandle)
                             );
 
-                            string blockName = ReadStringParameterFromDataTable(
-                                originalEnt.Layer,
-                                dtKrydsninger,
-                                "Block",
-                                0
-                            );
+                            string blockName = krydsninger.Block(originalEnt.Layer) ?? "";
 
                             if (blockName.IsNotNoE())
                             {
@@ -1595,12 +1562,8 @@ namespace IntersectUtilities
                 using Database fremDb = dm.Fremtid();
                 using Transaction fremTx = fremDb.TransactionManager.StartTransaction();
 
-                #region Read CSV
-                System.Data.DataTable dynBlocks = CsvData.FK;
-                #endregion
-
                 HashSet<Curve> allCurves = fremDb.GetFjvPipes(fremTx).Cast<Curve>().ToHashSet();
-                HashSet<BlockReference> allBrs = fremDb.GetFjvBlocks(fremTx, dynBlocks);
+                HashSet<BlockReference> allBrs = fremDb.GetFjvBlocks(fremTx);
 
 #if DEBUG
                 prdDbg("FJV Blocks present:");
@@ -2036,7 +1999,7 @@ namespace IntersectUtilities
             DataReferencesOptions dro = dataReferencesOptions ?? new DataReferencesOptions();
             var dm = new DataManager(dro);
 
-            var dt = CsvData.FK;
+            var fjvComponents = Csv.FjvDynamicComponents;
 
             PropertySetManager.UpdatePropertySetDefinition(
                 dB,
@@ -2403,7 +2366,7 @@ namespace IntersectUtilities
                                     pvElBottom,
                                     komponentBlockName,
                                     bueBlockName,
-                                    dt,
+                                    fjvComponents,
                                     psmPipeLineData,
                                     driPipelineData,
                                     psmSourceReference,
@@ -2646,6 +2609,8 @@ namespace IntersectUtilities
             Database dB = database ?? docCol.MdiActiveDocument.Database;
             Editor ed = docCol.MdiActiveDocument.Editor;
 
+            Dictionary<string, Polyline> alPlDict = new Dictionary<string, Polyline>();
+
             using (Transaction tx = dB.TransactionManager.StartTransaction())
             {
                 #region Open fremtidig db
@@ -2660,25 +2625,7 @@ namespace IntersectUtilities
                 #endregion
 
                 #region Read CSV
-                System.Data.DataTable dt = default;
-                try
-                {
-                    dt = CsvReader.ReadCsvToDataTable(
-                        @"X:\AutoCAD DRI - 01 Civil 3D\FJV Dynamiske Komponenter.csv",
-                        "FjvKomponenter"
-                    );
-                }
-                catch (System.Exception ex)
-                {
-                    prdDbg("Reading of FJV Dynamiske Komponenter.csv failed!");
-                    prdDbg(ex);
-                    throw;
-                }
-                if (dt == default)
-                {
-                    prdDbg("Reading of FJV Dynamiske Komponenter.csv failed!");
-                    throw new System.Exception("Failed to read FJV Dynamiske Komponenter.csv");
-                }
+                var fk = Csv.FjvDynamicComponents;
                 #endregion
 
                 //////////////////////////////////////
@@ -2693,6 +2640,12 @@ namespace IntersectUtilities
                     #region Common variables
                     BlockTable bt = tx.GetObject(dB.BlockTableId, OpenMode.ForRead) as BlockTable;
                     HashSet<Alignment> als = dB.HashSetOfType<Alignment>(tx);
+                    foreach (Alignment al in als)
+                    {
+                        Polyline alPline = al.GetPolyline().Go<Polyline>(tx)!;
+                        if (alPline == null) continue;
+                        alPlDict.Add(al.Name, alPline);
+                    }
                     #endregion
 
                     #region Initialize PS for source object reference
@@ -3107,10 +3060,7 @@ namespace IntersectUtilities
                             #endregion
 
                             #region Place component blocks
-                            System.Data.DataTable fjvKomponenter = CsvReader.ReadCsvToDataTable(
-                                @"X:\AutoCAD DRI - 01 Civil 3D\FJV Dynamiske Komponenter.csv",
-                                "FjvKomponenter"
-                            );
+                            var fjvKomponenter = Csv.FjvDynamicComponents;
                             foreach (BlockReference br in brs)
                             {
 #if DEBUG
@@ -3219,12 +3169,7 @@ namespace IntersectUtilities
                                 //Buerør need special treatment
                                 if (br.RealName() != "BUEROR1" && br.RealName() != "BUEROR2")
                                     continue;
-                                string type = ReadStringParameterFromDataTable(
-                                    br.RealName(),
-                                    fjvKomponenter,
-                                    "Type",
-                                    0
-                                );
+                                string? type = fjvKomponenter.Type(br.RealName());
                                 string augmentedType = ComponentSchedule.ReadComponentType(
                                     br,
                                     fjvKomponenter
@@ -3372,12 +3317,7 @@ namespace IntersectUtilities
                             foreach (BlockReference br in brs)
                             {
                                 #region Determine placement
-                                string type = ReadStringParameterFromDataTable(
-                                    br.RealName(),
-                                    fjvKomponenter,
-                                    "Type",
-                                    0
-                                );
+                                string? type = fjvKomponenter.Type(br.RealName());
                                 if (type != "Svejsning")
                                     continue;
 
@@ -3584,16 +3524,11 @@ namespace IntersectUtilities
                                         else
                                         {
                                             //Determine if centre of arc is within view
-                                            CircularArc2d arcSegment2dAt = pline.GetArcSegment2dAt(
-                                                i
-                                            );
-                                            Point2d samplePoint = (
-                                                (Curve2d)arcSegment2dAt
-                                            ).GetSamplePoints(11)[5];
-                                            Point3d location = al.GetClosestPointTo(
+                                            CircularArc2d arcSegment2dAt = pline.GetArcSegment2dAt(i);
+                                            Point2d samplePoint = ((Curve2d)arcSegment2dAt).GetSamplePoints(11)[5];
+                                            Point3d location = alPlDict[al.Name].GetClosestPointTo(
                                                 new Point3d(samplePoint.X, samplePoint.Y, 0),
-                                                false
-                                            );
+                                                false);
                                             double centreStation = 0;
                                             double centreOffset = 0;
                                             al.StationOffset(
@@ -3751,6 +3686,14 @@ namespace IntersectUtilities
                     prdDbg(ex);
                     return;
                 }
+                finally
+                {
+                    foreach (var kvp in alPlDict)
+                    {
+                        kvp.Value.CheckOrOpenForWrite();
+                        kvp.Value.Erase(true);
+                    }
+                }
                 fremTx.Abort();
                 fremTx.Dispose();
                 fremDb.Dispose();
@@ -3806,77 +3749,6 @@ namespace IntersectUtilities
                     }
                 }
                 #endregion
-                tx.Commit();
-            }
-        }
-
-        /// <command>CREATEPOINTSATVERTICES</command>
-        /// <summary>
-        /// Creates points at the vertices of polylines.
-        /// </summary>
-        /// <category>Longitudinal Profiles</category>
-        [CommandMethod("CREATEPOINTSATVERTICES")]
-        public void createpointsatvertices() => createpointsatverticesmethod();
-
-        public void createpointsatverticesmethod(Extents3d bbox = default)
-        {
-            DocumentCollection docCol = Application.DocumentManager;
-            Database localDb = docCol.MdiActiveDocument.Database;
-            Editor editor = docCol.MdiActiveDocument.Editor;
-            Document doc = docCol.MdiActiveDocument;
-            CivilDocument civilDoc = Autodesk
-                .Civil
-                .ApplicationServices
-                .CivilApplication
-                .ActiveDocument;
-
-            using (Transaction tx = localDb.TransactionManager.StartTransaction())
-            {
-                try
-                {
-                    #region Load linework
-                    HashSet<Polyline> plines = localDb.HashSetOfType<Polyline>(tx);
-                    if (bbox != default)
-                    {
-                        plines = plines
-                            .Where(x => bbox.IsExtentsInsideXY(x.GeometricExtents))
-                            .ToHashSet();
-                    }
-                    #endregion
-
-                    #region Layer handling
-                    string localLayerName = "0-POINTS_FOR_PL_VERTICES";
-                    localDb.CheckOrCreateLayer(localLayerName);
-                    #endregion
-
-                    #region Decorate polyline vertices
-                    BlockTableRecord space = (BlockTableRecord)
-                        tx.GetObject(localDb.CurrentSpaceId, OpenMode.ForWrite);
-                    BlockTable bt =
-                        tx.GetObject(localDb.BlockTableId, OpenMode.ForWrite) as BlockTable;
-
-                    foreach (Polyline pline in plines)
-                    {
-                        int numOfVerts = pline.NumberOfVertices - 1;
-                        for (int i = 0; i < numOfVerts; i++)
-                        {
-                            Point3d location = pline.GetPoint3dAt(i);
-                            using (var pt = new DBPoint(new Point3d(location.X, location.Y, 0)))
-                            {
-                                space.AppendEntity(pt);
-                                tx.AddNewlyCreatedDBObject(pt, true);
-                                pt.Layer = localLayerName;
-                            }
-                        }
-                    }
-                    #endregion
-                }
-                catch (System.Exception ex)
-                {
-                    tx.Abort();
-                    editor.WriteMessage("\n" + ex.Message);
-                    return;
-                }
                 tx.Commit();
             }
         }
@@ -4049,28 +3921,6 @@ namespace IntersectUtilities
                     //PipelineSizeArray sizeArray = new PipelineSizeArray(al, curves);
                     //prdDbg("Curves:");
                     //prdDbg(sizeArray.ToString());
-
-                    #region Read CSV
-                    System.Data.DataTable dt = default;
-                    try
-                    {
-                        dt = CsvReader.ReadCsvToDataTable(
-                            @"X:\AutoCAD DRI - 01 Civil 3D\FJV Dynamiske Komponenter.csv",
-                            "FjvKomponenter"
-                        );
-                    }
-                    catch (System.Exception ex)
-                    {
-                        prdDbg("Reading of FJV Dynamiske Komponenter.csv failed!");
-                        prdDbg(ex);
-                        throw;
-                    }
-                    if (dt == default)
-                    {
-                        prdDbg("Reading of FJV Dynamiske Komponenter.csv failed!");
-                        throw new System.Exception("Failed to read FJV Dynamiske Komponenter.csv");
-                    }
-                    #endregion
 
                     IPipelineV2 pipeline = PipelineV2Factory.Create(
                         curves.Cast<Entity>().Union(brs),
@@ -4653,23 +4503,7 @@ namespace IntersectUtilities
                     );
                     #endregion
 
-                    #region Read Csv Data for Layers and Depth
-
-                    //Establish the pathnames to files
-                    //Files should be placed in a specific folder on desktop
-                    string pathKrydsninger = "X:\\AutoCAD DRI - 01 Civil 3D\\Krydsninger.csv";
-                    string pathDybde = "X:\\AutoCAD DRI - 01 Civil 3D\\Dybde.csv";
-
-                    System.Data.DataTable dtKrydsninger = CsvReader.ReadCsvToDataTable(
-                        pathKrydsninger,
-                        "Krydsninger"
-                    );
-                    System.Data.DataTable dtDybde = CsvReader.ReadCsvToDataTable(
-                        pathDybde,
-                        "Dybde"
-                    );
-
-                    #endregion
+                    // Krydsninger and Dybde can be accessed via Csv.Krydsninger and Csv.Dybde if needed
 
                     #region Delete existing points
                     PointGroupCollection pgs = civilDoc.PointGroups;
@@ -6338,9 +6172,9 @@ namespace IntersectUtilities
                 try
                 {
                     #region Read Csv Data
-                    var dtKrydsninger = CsvData.Kryds;
-                    var dtDistances = CsvData.Dist;
-                    var dt = CsvData.FK;
+                    var krydsninger = Csv.Krydsninger;
+                    var distances = Csv.Distances;
+                    var fjvComponents = Csv.FjvDynamicComponents;
                     #endregion
 
                     BlockTableRecord space = (BlockTableRecord)
@@ -6525,25 +6359,10 @@ namespace IntersectUtilities
                                 );
 
                             //Determine type and distance
-                            string distanceType = ReadStringParameterFromDataTable(
-                                originalEnt.Layer,
-                                dtKrydsninger,
-                                "Distance",
-                                0
-                            );
-                            string blockType = ReadStringParameterFromDataTable(
-                                originalEnt.Layer,
-                                dtKrydsninger,
-                                "Block",
-                                0
-                            );
-                            string distance = ReadStringParameterFromDataTable(
-                                distanceType,
-                                dtDistances,
-                                "Distance",
-                                0
-                            );
-                            if (distance == null)
+                            string distanceType = krydsninger.Distance(originalEnt.Layer) ?? "";
+                            string blockType = krydsninger.Block(originalEnt.Layer) ?? "";
+                            string distance = distances.Distance(distanceType) ?? "";
+                            if (string.IsNullOrEmpty(distance))
                                 throw new System.Exception(
                                     $"Distance not found for {distanceType}! Layer: {originalEnt.Layer}"
                                 );
@@ -6784,17 +6603,30 @@ namespace IntersectUtilities
         [CommandMethod("UPDATESINGLEPROFILEVIEW")]
         public void updatesingleprofileview()
         {
-            updatesingleprofileviewmethod(Oid.Null, null);
+            var dro = new DataReferencesOptions();
+            DataManager dm = new DataManager(dro);
+            using var surfaceDb = dm.Surface();
+            using var stx = surfaceDb.TransactionManager.StartTransaction();
+            var surface = surfaceDb.HashSetOfType<TinSurface>(stx).FirstOrDefault();
+            if (surface == null)
+            {
+                prdDbg("\nNo surface found in the specified DataReferencesOptions.");
+                return;
+            }
+
+            updatesingleprofileviewmethod(Oid.Null, dro, surface);
         }
 
         public void updatesingleprofileviewmethod(
             Oid profileViewId,
-            DataReferencesOptions? dro = null
+            DataReferencesOptions? dro = null,
+            CivSurface? surface = null
         )
         {
             DocumentCollection docCol = Application.DocumentManager;
             Database localDb = docCol.MdiActiveDocument.Database;
             Editor editor = docCol.MdiActiveDocument.Editor;
+            Document doc = Application.DocumentManager.MdiActiveDocument;
 
             Oid pvId;
 
@@ -6818,6 +6650,41 @@ namespace IntersectUtilities
                 dro = new DataReferencesOptions();
                 if (dro.ProjectName.IsNoE() || dro.EtapeName.IsNoE())
                     return;
+            }
+
+            string activeLayer;
+
+            using (Transaction tx = localDb.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    var ltr = (LayerTableRecord)tx.GetObject(localDb.Clayer, OpenMode.ForRead);
+                    activeLayer = ltr?.Name ?? "0";
+                    tx.Commit();
+                }
+                catch (System.Exception ex)
+                {
+                    prdDbg(ex);
+                    tx.Abort();
+                    return;
+                }
+            }
+
+            using (doc.LockDocument())
+            using (Transaction tx = localDb.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    var lt = (LayerTable)tx.GetObject(localDb.LayerTableId, OpenMode.ForRead);
+                    localDb.Clayer = lt["0"];
+                    tx.Commit();
+                }
+                catch (System.Exception ex)
+                {
+                    prdDbg(ex);
+                    tx.Abort();
+                    return;
+                }
             }
 
             PropertySetManager.UpdatePropertySetDefinition(
@@ -6942,13 +6809,12 @@ namespace IntersectUtilities
                 try
                 {
                     Alignment al = alId.Go<Alignment>(tx);
-                    createsurfaceprofilesmethod(dro, new List<Alignment>() { al });
+                    createsurfaceprofilesmethod(dro, new List<Alignment>() { al }, surface);
                     createprofileviewsmethod(originalProfileViewLocation);
-                    createlerdatapssmethod2(dro, new List<Alignment>() { al });
+                    createlerdatapssmethod2(dro, surface, new List<Alignment>() { al });
                     populateprofilesmethod(dro, al.GetProfileViewIds().ToHashSet());
                     colorizealllerlayersmethod();
                     createprofilesmethod(dro, new HashSet<Alignment> { al });
-                    createpointsatverticesmethod(bufferedOriginalBbox);
                     createdetailingpreliminarymethod(dro, null, new HashSet<Alignment> { al });
                     staggerlabelsallmethod(null, al.GetProfileViewIds().ToHashSet());
                 }
@@ -6973,6 +6839,23 @@ namespace IntersectUtilities
                     prdDbg(ex);
                 }
                 tx.Commit();
+            }
+
+            using (doc.LockDocument())
+            using (Transaction tx = localDb.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    var lt = (LayerTable)tx.GetObject(localDb.LayerTableId, OpenMode.ForRead);
+                    localDb.Clayer = lt[activeLayer];
+                    tx.Commit();
+                }
+                catch (System.Exception ex)
+                {
+                    prdDbg(ex);
+                    tx.Abort();
+                    return;
+                }
             }
 
             prdDbg("Update finished! Run AUDIT (Y) to clean up drawing!");
@@ -7002,9 +6885,32 @@ namespace IntersectUtilities
 
             var pvIds = localDb.HashSetIdsOfType<ProfileView>();
 
+            DataManager dm = new(dro);
+            using Database surfaceDb = dm.Surface();
+            using Transaction surfaceTx = surfaceDb.TransactionManager.StartTransaction();
+
+            CivSurface? surface = null;
+            try
+            {
+                surface =
+                    surfaceDb.HashSetOfType<TinSurface>(surfaceTx).FirstOrDefault() as CivSurface;
+            }
+            catch (System.Exception)
+            {
+                surfaceTx.Abort();
+                return;
+            }
+
+            if (surface == null)
+            {
+                editor.WriteMessage("\nSurface could not be loaded from the xref!");
+                surfaceTx.Abort();
+                return;
+            }
+
             foreach (Oid pvId in pvIds)
             {
-                updatesingleprofileviewmethod(pvId, dro);
+                updatesingleprofileviewmethod(pvId, dro, surface);
             }
         }
 
@@ -7019,28 +6925,6 @@ namespace IntersectUtilities
         {
             DocumentCollection docCol = Application.DocumentManager;
             Database localDb = docCol.MdiActiveDocument.Database;
-
-            #region Read CSV
-            System.Data.DataTable dt = default;
-            try
-            {
-                dt = CsvReader.ReadCsvToDataTable(
-                    @"X:\AutoCAD DRI - 01 Civil 3D\FJV Dynamiske Komponenter.csv",
-                    "FjvKomponenter"
-                );
-            }
-            catch (System.Exception ex)
-            {
-                prdDbg("Reading of FJV Dynamiske Komponenter.csv failed!");
-                prdDbg(ex);
-                throw;
-            }
-            if (dt == default)
-            {
-                prdDbg("Reading of FJV Dynamiske Komponenter.csv failed!");
-                throw new System.Exception("Failed to read FJV Dynamiske Komponenter.csv");
-            }
-            #endregion
 
             #region Open fremtidig db and get entities
             var dro = new DataReferencesOptions();
@@ -7455,7 +7339,7 @@ namespace IntersectUtilities
                 //Find the MIDT profiles for pipelines
                 var midtProfiles = new Dictionary<Node<IPipelineV2>, (Database db, Oid pid)>();
 
-                var rgx = new Regex(@"(?<number>\d{2,3}).+");
+                var rgx = new Regex(@"^(?<number>\d{2,3}).*");
                 var rawMidtProfiles = new Dictionary<string, Oid>();
                 foreach (var ldb in længdeprofilerdbs)
                 {
@@ -7584,6 +7468,160 @@ namespace IntersectUtilities
             }
 
             tx.Commit();
+        }
+
+        /// <command>LEROPENANDSELECT</command>
+        /// <summary>
+        /// Select a cogo point in a profile view.
+        /// The command opens the corresponding LER database and selects the corresponding polyline3d.
+        /// </summary>
+        /// <category>Longitudinal Profiles</category>
+        [CommandMethod("LEROPENANDSELECT", CommandFlags.UsePickSet | CommandFlags.Session)]
+        public void leropenandselect()
+        {
+            DocumentCollection docCol = Application.DocumentManager;
+            Database localDb = docCol.MdiActiveDocument.Database;
+            Editor ed = docCol.MdiActiveDocument.Editor;
+
+            // Get preselected objects (PickFirst selection)
+            PromptSelectionResult ssResult = ed.SelectImplied();
+            if (ssResult.Status != PromptStatus.OK)
+            {
+                ed.WriteMessage("\nNo cogo point was preselected.");
+                return;
+            }
+
+            ObjectId[] ids = ssResult.Value.GetObjectIds();
+            if (ids.Length != 1)
+            {
+                ed.WriteMessage("\nPlease select exactly one cogo point.");
+                return;
+            }
+
+            using Transaction tx = localDb.TransactionManager.StartTransaction();
+
+            try
+            {
+                // Get the selected entity
+                Entity ent = ids[0].Go<Entity>(tx);
+
+                // Check if it's a CogoPoint
+                if (ent is not CogoPoint cogoPoint)
+                {
+                    ed.WriteMessage($"\nSelected object is not a CogoPoint. Type: {ent.GetType().Name}");
+                    tx.Abort();
+                    return;
+                }
+
+                string pointName = cogoPoint.PointName;
+                prdDbg($"CogoPoint name: {pointName}");
+
+                // Parse the point name
+                // Ler3dManagerFile format: <project>:<phase>:<Handle>_<n>
+                // Ler3dManagerFolder format: <project>:<phase>:<FileName>.dwg:<Handle>_<n>
+                string[] parts = pointName.Split(':');
+                if (parts.Length < 3)
+                {
+                    ed.WriteMessage($"\nInvalid point name format: {pointName}");
+                    tx.Abort();
+                    return;
+                }
+
+                string project = parts[0];
+                string phase = parts[1];
+
+                // Handle is always the last part, strip _<n> suffix if present
+                string handlePart = parts[^1];
+                string handle = handlePart.Contains('_')
+                    ? handlePart.Split('_')[0]
+                    : handlePart;
+
+                prdDbg($"Project: {project}, Phase: {phase}, Handle: {handle}");
+
+                // Create DataManager with parsed project and phase
+                var dro = new DataReferencesOptions(project, phase);
+                var dm = new DataManager(dro);
+
+                // Load Ler3dManager to get the database path
+                ILer3dManager lman = Ler3dManagerFactory.LoadLer3d(dm);
+                string? dbPath = null;
+
+                try
+                {
+                    // Get the correct database using the full ID string
+                    Database? targetDb = lman.GetDatabaseByIdString(pointName);
+
+                    if (targetDb == null)
+                    {
+                        ed.WriteMessage($"\nCould not find database for ID: {pointName}");
+                        tx.Abort();
+                        return;
+                    }
+
+                    dbPath = targetDb.Filename;
+                    prdDbg($"Opening database: {dbPath}");
+                }
+                finally
+                {
+                    // Dispose the Ler3dManager before opening the document
+                    // This releases file locks on all side-loaded databases
+                    lman.Dispose(true);
+                }
+
+                // Commit current transaction before opening new document
+                tx.Commit();
+
+                // Check if the document is already open
+                Document? newDoc = null;
+                foreach (Document doc in docCol)
+                {
+                    if (string.Equals(doc.Database.Filename, dbPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        newDoc = doc;
+                        break;
+                    }
+                }
+
+                // Open the drawing if not already open, otherwise just switch to it
+                if (newDoc == null)
+                {
+                    newDoc = docCol.Open(dbPath, false);
+                }
+                docCol.MdiActiveDocument = newDoc;
+
+                // Now select and zoom to the entity in the new document
+                using (DocumentLock dl = newDoc.LockDocument())
+                {
+                    Database newDb = newDoc.Database;
+                    Editor newEd = newDoc.Editor;
+
+                    // Convert handle string to ObjectId
+                    long ln = Convert.ToInt64(handle, 16);
+                    Handle hn = new Handle(ln);
+                    Oid id = newDb.GetObjectId(false, hn, 0);
+
+                    if (id.IsNull || !id.IsValid)
+                    {
+                        newEd.WriteMessage($"\nCould not find entity with handle: {handle}");
+                        return;
+                    }
+
+                    // Select the entity using Internal.Utils (works cross-document)
+                    Autodesk.AutoCAD.Internal.Utils.SelectObjects([id]);
+
+                    // Zoom to the entity
+                    Interaction.ZoomObjects([id]);
+
+                    newEd.WriteMessage($"Selected and zoomed to entity with handle: {handle}");
+                }
+
+                return;
+            }
+            catch (System.Exception ex)
+            {
+                prdDbg(ex);
+                return;
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -20,8 +20,8 @@ using IntersectUtilities.Forms;
 using IntersectUtilities.GraphClasses;
 using IntersectUtilities.UtilsCommon;
 using IntersectUtilities.UtilsCommon.DataManager;
+using IntersectUtilities.UtilsCommon.DataManager.CsvData;
 using IntersectUtilities.UtilsCommon.Enums;
-using IntersectUtilities.UtilsCommon.Graphs;
 
 using Microsoft.Win32;
 
@@ -69,7 +69,10 @@ namespace IntersectUtilities
                 SystemObjects.DynamicLinker.LoadModule(
                     "AcMPolygonObj" + Application.Version.Major + ".dbx", false, false);
             }
-            prdDbg("IntersectUtilites loaded!\n");
+            prdDbg("(❁´◡`❁) (っ °Д °;)っ (●'◡'●)");
+            prdDbg($" IntersectUtilites loaded!");
+            prdDbg("(❁´◡`❁) (っ °Д °;)っ (●'◡'●)");
+            prdDbg();
 #if DEBUG
             AppDomain.CurrentDomain.AssemblyResolve +=
                 new ResolveEventHandler(EventHandlers.Debug_AssemblyResolve);
@@ -97,44 +100,6 @@ namespace IntersectUtilities
             {
                 try
                 {
-                    #region Select XREF -- OBSOLETE
-
-                    //PromptEntityOptions promptEntityOptions1 = new PromptEntityOptions("\n Select a LER XREF : ");
-                    //promptEntityOptions1.SetRejectMessage("\n Not a XREF");
-                    //promptEntityOptions1.AddAllowedClass(typeof(Autodesk.AutoCAD.DatabaseServices.BlockReference), true);
-                    //PromptEntityResult entity1 = editor.GetEntity(promptEntityOptions1);
-                    //if (((PromptResult)entity1).Status != PromptStatus.OK) return;
-                    //Autodesk.AutoCAD.DatabaseServices.ObjectId blkObjId = entity1.ObjectId;
-                    //Autodesk.AutoCAD.DatabaseServices.BlockReference blkRef
-                    //    = tx.GetObject(blkObjId, OpenMode.ForRead, false)
-                    //    as Autodesk.AutoCAD.DatabaseServices.BlockReference;
-                    #endregion
-
-                    #region Open XREF and tx -- OBSOLETE
-
-                    //// open the block definition?
-                    //BlockTableRecord blockDef = tx.GetObject(blkRef.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
-                    //// is not from external reference, exit
-                    //if (!blockDef.IsFromExternalReference) return;
-                    //// open the xref database
-                    //Database xRefDB = new Database(false, true);
-                    //editor.WriteMessage($"\nPathName of the blockDef -> {blockDef.PathName}");
-                    ////Relative path handling
-                    ////I
-                    //string curPathName = blockDef.PathName;
-                    //bool isFullPath = IsFullPath(curPathName);
-                    //if (isFullPath == false)
-                    //{
-                    //    string sourcePath = Path.GetDirectoryName(doc.Name);
-                    //    editor.WriteMessage($"\nSourcePath -> {sourcePath}");
-                    //    curPathName = GetAbsolutePath(sourcePath, blockDef.PathName);
-                    //    editor.WriteMessage($"\nTargetPath -> {curPathName}");
-                    //}
-                    //xRefDB.ReadDwgFile(curPathName, System.IO.FileShare.Read, false, string.Empty);
-                    ////Transaction from Database of the Xref
-                    //Transaction xrefTx = xRefDB.TransactionManager.StartTransaction();
-                    #endregion
-
                     #region Gather layer names
 
                     HashSet<Line> lines = db.HashSetOfType<Line>(tx);
@@ -165,24 +130,20 @@ namespace IntersectUtilities
                     #endregion
 
                     #region Read Csv Data for Layers and Depth
-
-                    //Establish the pathnames to files
-                    string pathKrydsninger = "X:\\AutoCAD DRI - 01 Civil 3D\\Krydsninger.csv";
-                    string pathDybde = "X:\\AutoCAD DRI - 01 Civil 3D\\Dybde.csv";
-                    System.Data.DataTable dtKrydsninger = CsvReader.ReadCsvToDataTable(pathKrydsninger, "Krydsninger");
-                    System.Data.DataTable dtDybde = CsvReader.ReadCsvToDataTable(pathDybde, "Dybde");
+                    var krydsninger = Csv.Krydsninger;
+                    var dybde = Csv.Dybde;
                     #endregion
 
                     foreach (string name in layNames)
                     {
-                        string nameInFile = ReadStringParameterFromDataTable(name, dtKrydsninger, "Navn", 0);
+                        string? nameInFile = krydsninger.Navn(name);
                         if (nameInFile.IsNoE())
                         {
                             editor.WriteMessage($"\nDefinition af ledningslag '{name}' mangler i Krydsninger.csv!");
                         }
                         else
                         {
-                            string typeInFile = ReadStringParameterFromDataTable(name, dtKrydsninger, "Type", 0);
+                            string? typeInFile = krydsninger.Type(name);
                             if (typeInFile == "IGNORE")
                             {
                                 editor.WriteMessage($"\nAdvarsel: Ledningslag" +
@@ -190,7 +151,7 @@ namespace IntersectUtilities
                             }
                             else
                             {
-                                string layerInFile = ReadStringParameterFromDataTable(name, dtKrydsninger, "Layer", 0);
+                                string? layerInFile = krydsninger.Layer(name);
                                 if (layerInFile.IsNoE())
                                     editor.WriteMessage($"\nFejl: Definition af kolonne \"Layer\" for ledningslag" +
                                         $" '{name}' mangler i Krydsninger.csv!");
@@ -356,7 +317,7 @@ namespace IntersectUtilities
         {
             importcivilstylesmethod();
         }
-        public void importcivilstylesmethod(Database db = null)
+        public void importcivilstylesmethod(Database? db = null)
         {
             try
             {
@@ -449,7 +410,8 @@ namespace IntersectUtilities
                             idsToClone.Add(sourceBt["EL 10kV"]);
                             idsToClone.Add(sourceBt["EL 0.4kV"]);
                             idsToClone.Add(sourceBt["VerticeArc"]);
-                            idsToClone.Add(sourceBt["VerticeLine"]);
+                            idsToClone.Add(sourceBt["VerticeLine"]);                            
+
                             IdMapping mapping = new IdMapping();
                             stylesDB.WblockCloneObjects(idsToClone, destDbMsId, mapping, DuplicateRecordCloning.Replace, false);
                         }
@@ -470,6 +432,77 @@ namespace IntersectUtilities
             {
                 prdDbg(ex);
                 return;
+            }
+        }
+
+        /// <command>IMPORTTEXTSTYLES</command>
+        /// <summary>
+        /// Imports text styles from an external drawing into the current drawing.
+        /// </summary>
+        /// <category>Style Management</category>
+        [CommandMethod("IMPORTTEXTSTYLES")]
+        public void importtextstyles()
+        {
+            importtextstylesmethod();
+        }
+        public void importtextstylesmethod(Database? db = null)
+        {
+            DocumentCollection dc = Application.DocumentManager;
+            Database localDb = db ?? dc.MdiActiveDocument.Database;
+            prdDbg("Importing text styles...");
+            string pathToStyles = @"X:\AutoCAD DRI - 01 Civil 3D\Projection_styles.dwg";
+            using var stylesDB = new Database(false, true);
+            stylesDB.ReadDwgFile(pathToStyles, FileOpenMode.OpenForReadAndAllShare, false, null);
+            
+            using (var localTx = localDb.TransactionManager.StartTransaction())
+            using (var stylesTx = stylesDB.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    ObjectIdCollection objIds = new ObjectIdCollection();
+
+                    TextStyleTable sourceTst = stylesDB.TextStyleTableId.Go<TextStyleTable>(stylesTx)!;
+                    objIds.Add(sourceTst["Note_Længdeprofiler"]);                    
+
+                    IdMapping mapping = new IdMapping();
+                    stylesDB.WblockCloneObjects(objIds, localDb.TextStyleTableId, mapping, DuplicateRecordCloning.Replace, false);
+                }
+                catch (System.Exception e)
+                {
+                    stylesTx.Abort();
+                    localTx.Abort();
+                    prdDbg(e);
+                    throw;
+                }
+
+                stylesTx.Commit();
+                localTx.Commit();
+            }
+
+            using (var localTx = localDb.TransactionManager.StartTransaction())
+            using (var stylesTx = stylesDB.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    ObjectIdCollection objIds = new ObjectIdCollection();
+
+                    DBDictionary mlsd = stylesDB.MLeaderStyleDictionaryId.Go<DBDictionary>(stylesTx)!;
+                    objIds.Add(mlsd.GetAt("Note_Længdeprofiler"));
+
+                    IdMapping mapping = new IdMapping();
+                    stylesDB.WblockCloneObjects(
+                        objIds, localDb.MLeaderStyleDictionaryId, mapping, DuplicateRecordCloning.Replace, false);
+                }
+                catch (System.Exception e)
+                {
+                    stylesTx.Abort();
+                    localTx.Abort();
+                    prdDbg(e);
+                    throw;
+                }
+
+                stylesTx.Commit();
+                localTx.Commit();
             }
         }
 
@@ -875,23 +908,25 @@ namespace IntersectUtilities
             {
                 try
                 {
-                    string lagSti = "X:\\AutoCAD DRI - 01 Civil 3D\\Lag.csv";
-                    System.Data.DataTable dtLag = CsvReader.ReadCsvToDataTable(lagSti, "Lag");
+                    var lagLer = Csv.LagLer;
                     LayerTable lt = selectedDB.LayerTableId.Go<LayerTable>(selectedDB.TransactionManager.TopTransaction);
-                    Regex regex = new Regex(@"^(?<R>\d+)\*(?<G>\d+)\*(?<B>\d+)");
-                    HashSet<string> layerNames = dtLag.AsEnumerable().Select(x => x["Layer"].ToString()).ToHashSet();
+                    HashSet<string> layerNames = lagLer.AllLayers().ToHashSet();
+                    LinetypeTable ltt = selectedDB.LinetypeTableId.Go<LinetypeTable>(selectedDB.TransactionManager.TopTransaction);
+
                     foreach (string name in layerNames.Where(x => x.IsNotNoE()).OrderBy(x => x))
                     {
                         if (lt.Has(name))
                         {
-                            string colorString = ReadStringParameterFromDataTable(name, dtLag, "Farve", 0);
+                            string? colorString = lagLer.Farve(name);
                             if (colorString.IsNotNoE())
                             {
                                 var color = UtilsCommon.Utils.ParseColorString(colorString);
                                 prdDbg($"Set layer {name} to color: {color}");
-                                LayerTableRecord ltr = lt[name].Go<LayerTableRecord>(selectedDB.TransactionManager.TopTransaction, OpenMode.ForWrite);
+                                LayerTableRecord ltr = lt[name].Go<LayerTableRecord>(
+                                    selectedDB.TransactionManager.TopTransaction, OpenMode.ForWrite);
                                 ltr.Color = color;
                                 ltr.LineWeight = LineWeight.LineWeight013;
+                                ltr.LinetypeObjectId = ltt["Continuous"];
                             }
                             else prdDbg("No match!");
                         }
@@ -925,143 +960,7 @@ namespace IntersectUtilities
                 }
                 tx.Commit();
             }
-        }
-
-        /// <command>ATTACHAREADATA</command>
-        /// <summary>
-        /// Attaches area data to selected entities. Used long time ago when the areas were defined in a dwf file.
-        /// </summary>
-        /// <category>Mængdeudtræk</category>
-        [CommandMethod("ATTACHAREADATA")]
-        public static void attachareadata()
-        {
-            DocumentCollection docCol = Application.DocumentManager;
-            Database localDb = docCol.MdiActiveDocument.Database;
-            Document doc = docCol.MdiActiveDocument;
-            CivilDocument civilDoc = Autodesk.Civil.ApplicationServices.CivilApplication.ActiveDocument;
-            Editor ed = Application.DocumentManager.MdiActiveDocument.Editor;
-            try
-            {
-                try
-                {
-                    #region Dialog box for file list selection and path determination
-
-                    string path = string.Empty;
-                    OpenFileDialog dialog = new OpenFileDialog()
-                    {
-                        Title = "Choose csv file:",
-                        DefaultExt = "csv",
-                        Filter = "csv files (*.csv)|*.csv|All files (*.*)|*.*",
-                        FilterIndex = 0
-                    };
-                    if (dialog.ShowDialog() == true)
-                    {
-                        path = dialog.FileName;
-                    }
-                    else return;
-                    #endregion
-
-                    #region Populate area data from string
-
-                    System.Data.DataTable areaDescriptions = CsvReader.ReadCsvToDataTable(path, "Areas");
-                    //Datatable to list of strings
-                    //List<string> areaNames = (from System.Data.DataRow dr in areaDescriptions.Rows select (string)dr[1]).ToList();
-                    //foreach (string name in areaNames)
-                    foreach (DataRow row in areaDescriptions.Rows)
-                    {
-                        //string nummer = row["Nummer"].ToString();
-                        //string navn = row["Navn"].ToString();
-                        //string vejkl = row["Vejkl"].ToString();
-                        //string belægning = row["Belaegning"].ToString();
-                        string vejkl = row["Vejklasse"].ToString().Replace("Vejkl. ", "");
-                        string belægning = row["Belægning"].ToString();
-                        string vejnavn = row["Vejnavn"].ToString();
-                        //prdDbg(name);
-                        prdDbg($"Vejkl. {vejkl}, {belægning}, {vejnavn}");
-                        System.Windows.Forms.Application.DoEvents();
-                        #region Select pline
-
-                        PromptEntityOptions promptEntityOptions1 = new PromptEntityOptions(
-                            "\nSelect polyline to add data to:");
-                        promptEntityOptions1.SetRejectMessage("\nNot a polyline!");
-                        promptEntityOptions1.AddAllowedClass(typeof(Polyline), true);
-                        PromptEntityResult entity1 = ed.GetEntity(promptEntityOptions1);
-                        if (((PromptResult)entity1).Status != PromptStatus.OK) return;
-                        Oid plineId = entity1.ObjectId;
-                        #endregion
-
-                        //string[] split1 = name.Split(new[] { ", " }, StringSplitOptions.None);
-                        //split1[1] = split1[1].Replace("Vejkl. ", "");
-                        #region Old ownership logic
-
-                        //string ownership = "O";
-                        ////Handle the ownership dilemma
-                        //if (split1[0].Contains("(P)"))
-                        //{
-                        //    split1[0] = split1[0].Split(new[] { " (" }, StringSplitOptions.None)[0];
-                        //    ownership = "P";
-                        //}
-                        //string[] data = new string[4] { split1[0], ownership, split1[1], split1[2] }; 
-                        #endregion
-
-                        //Test change
-                        //if (ownership == "P") prdDbg(data[0] + " " + data[1] + " " + data[2] + " " + data[3]);
-                        #region Create layer for OK plines
-
-                        string områderLayer = "0-OMRÅDER-OK";
-                        using (Transaction txLag = localDb.TransactionManager.StartTransaction())
-                        {
-                            LayerTable lt = txLag.GetObject(localDb.LayerTableId, OpenMode.ForRead) as LayerTable;
-                            if (!lt.Has(områderLayer))
-                            {
-                                LayerTableRecord ltr = new LayerTableRecord();
-                                ltr.Name = områderLayer;
-                                ltr.Color = Color.FromColorIndex(ColorMethod.ByAci, 0);
-                                ltr.LineWeight = LineWeight.LineWeight000;
-                                ltr.IsPlottable = false;
-                                //Make layertable writable
-                                lt.CheckOrOpenForWrite();
-                                //Add the new layer to layer table
-                                Oid ltId = lt.Add(ltr);
-                                txLag.AddNewlyCreatedDBObject(ltr, true);
-                            }
-                            txLag.Commit();
-                        }
-                        #endregion
-
-                        using (Transaction tx = localDb.TransactionManager.StartTransaction())
-                        {
-                            #region Property Set Manager
-
-                            PropertySetManager psmOmråder =
-                                new PropertySetManager(localDb, PSetDefs.DefinedSets.DriOmråder);
-                            PSetDefs.DriOmråder driOmråder = new PSetDefs.DriOmråder();
-                            #endregion
-
-                            Polyline pline = plineId.Go<Polyline>(tx, OpenMode.ForWrite);
-                            psmOmråder.WritePropertyString(pline, driOmråder.Vejnavn, vejnavn);
-                            psmOmråder.WritePropertyString(pline, driOmråder.Vejklasse, vejkl);
-                            psmOmråder.WritePropertyString(pline, driOmråder.Belægning, belægning);
-                            pline.Layer = områderLayer;
-                            pline.Color = Color.FromColorIndex(ColorMethod.ByAci, 256);
-                            pline.LineWeight = LineWeight.ByLayer;
-                            tx.Commit();
-                        }
-                    }
-                    #endregion
-
-                }
-                catch (System.Exception ex)
-                {
-                    ed.WriteMessage(ex.Message + " \nCheck if OK layer exists!");
-                    throw;
-                }
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage(ex.Message);
-            }
-        }
+        }        
 
         /// <command>SETMODELSPACESCALEFORALL</command>
         /// <summary>
@@ -1493,117 +1392,7 @@ namespace IntersectUtilities
                 }
                 tx.Commit();
             }
-        }
-
-        /// <command>CCL</command>
-        /// <summary>
-        /// Creates complex linetype with text. User must type the name of the linetype and the text to be displayed.
-        /// </summary>
-        /// <category>Miscellaneous</category>
-        [CommandMethod("CCL")]
-        public void createcomplexlinetype()
-        {
-            //string lineTypeName = "BIPS_TEXT_N2";
-            string lineTypeName = Interaction.GetString("Enter LineType name: (ex: BIPS_TEXT_N2) \n");
-            if (lineTypeName.IsNoE()) return;
-            //string text = "N2";
-            string text = Interaction.GetString("Enter text to be displayed by line: (ex: 10kV) NO SPACES!!! \n", true);
-            string textStyleName = "Standard";
-            createcomplexlinetypemethod(lineTypeName, text, textStyleName);
-        }
-
-        /// <command>UELT</command>
-        /// <summary>
-        /// Update existing linetype. User must select object with linetype to be updated and type the text to be displayed.
-        /// </summary>
-        /// <category>Miscellaneous</category>
-        [CommandMethod("UELT")]
-        public void updateexistinglinetype()
-        {
-            Document doc = Application.DocumentManager.MdiActiveDocument;
-            Database db = doc.Database;
-            prdDbg("Text style is presumed \"Standard\"!");
-            Oid id = Interaction.GetEntity("Select object to update linetype: ");
-            if (id.IsNull) return;
-            string text = Interaction.GetString("Enter text: ", true);
-            if (text.IsNoE()) return;
-            Transaction tx = db.TransactionManager.StartTransaction();
-            using (tx)
-            {
-                try
-                {
-                    createcomplexlinetypemethod(
-                        id.Layer().Replace("00LT-", ""), text, "Standard");
-                }
-                catch (System.Exception ex)
-                {
-                    tx.Abort();
-                    prdDbg(ex);
-                }
-                tx.Commit();
-            }
-        }
-        /// <command>CREATEALLLINETYPESLAYERS</command>
-        /// <summary>
-        /// Creates a layer and a polyline for each linetype in drawing with the linetype assigned.
-        /// Arranges the polylines in a table-like fashion.
-        /// Useful for visualizing linetypes.
-        /// </summary>
-        /// <category>Miscellaneous</category>
-        [CommandMethod("CREATEALLLINETYPESLAYERS")]
-        public void createcalllinetypeslayers()
-        {
-            Document doc = Application.DocumentManager.MdiActiveDocument;
-            Database db = doc.Database;
-            Editor ed = doc.Editor;
-            using (Transaction tx = db.TransactionManager.StartTransaction())
-            {
-                try
-                {
-                    TextStyleTable tt = (TextStyleTable)tx.GetObject(db.TextStyleTableId, OpenMode.ForRead);
-                    // Get the linetype table from the drawing
-                    LinetypeTable ltt = (LinetypeTable)tx.GetObject(db.LinetypeTableId, OpenMode.ForWrite);
-                    // Get layer table
-                    LayerTable lt = tx.GetObject(db.LayerTableId, OpenMode.ForRead) as LayerTable;
-                    double startX = 0; double Y = 0; double delta = 5;
-                    double endX = 100;
-                    var dict = new Dictionary<string, Oid>();
-                    foreach (Oid lttrOid in ltt)
-                    {
-                        LinetypeTableRecord lttr = lttrOid.Go<LinetypeTableRecord>(tx);
-                        dict.Add(lttr.Name, lttrOid);
-                    }
-                    foreach (var kvp in dict.OrderBy(x => x.Key))
-                    {
-                        LinetypeTableRecord lttr = kvp.Value.Go<LinetypeTableRecord>(tx);
-                        string layerName = "00LT-" + lttr.Name;
-                        if (!lt.Has(layerName))
-                        {
-                            db.CheckOrCreateLayer(layerName);
-                        }
-                        Oid ltrId = lt[layerName];
-                        LayerTableRecord ltr = ltrId.Go<LayerTableRecord>(tx, OpenMode.ForWrite);
-                        ltr.LinetypeObjectId = kvp.Value;
-                        Polyline pline = new Polyline(2);
-                        pline.AddVertexAt(pline.NumberOfVertices, new Point2d(startX, Y), 0, 0, 0);
-                        pline.AddVertexAt(pline.NumberOfVertices, new Point2d(endX, Y), 0, 0, 0);
-                        pline.AddEntityToDbModelSpace(db);
-                        pline.Layer = layerName;
-                        DBText text = new DBText();
-                        text.Position = new Point3d(-60, Y, 0);
-                        text.TextString = lttr.Name;
-                        text.AddEntityToDbModelSpace(db);
-                        Y -= delta;
-                    }
-                }
-                catch (System.Exception ex)
-                {
-                    tx.Abort();
-                    prdDbg(ex);
-                }
-                tx.Commit();
-            }
-        }
+        }        
 
         /// <command>PLACEOBJLAYCOLOR</command>
         /// <summary>
@@ -1724,7 +1513,9 @@ namespace IntersectUtilities
             string dbFilename = localDb.OriginalFileName;
             string fileName = Path.GetFileNameWithoutExtension(dbFilename);
             string path = Path.GetDirectoryName(dbFilename);
-            string poly3dExportFile = path + "\\" + fileName + "_3D_Bundprofil.dwg";
+            string newFolder = Path.Combine(path, "Bundprofil");
+            if (!Directory.Exists(newFolder)) Directory.CreateDirectory(newFolder);
+            string poly3dExportFile = path + "\\Bundprofil\\" + fileName + "_3D_Bundprofil.dwg";
             Database poly3dDb = new Database(true, true);
             using (Transaction poly3dTx = poly3dDb.TransactionManager.StartTransaction())
             using (Transaction tx = localDb.TransactionManager.StartTransaction())
@@ -2051,216 +1842,6 @@ namespace IntersectUtilities
             IntersectUtilities.ODDataConverter.ODDataConverter.oddatacreatepropertysetsdefs();
             IntersectUtilities.ODDataConverter.ODDataConverter.attachpropertysetstoobjects();
             IntersectUtilities.ODDataConverter.ODDataConverter.populatepropertysetswithoddata();
-        }
-
-        public void graphpopulate(Database db = null)
-        {
-            DocumentCollection docCol = Application.DocumentManager;
-            Database localDb = db ?? docCol.MdiActiveDocument.Database;
-            using (Transaction tx = localDb.TransactionManager.StartTransaction())
-            {
-                try
-                {
-                    System.Data.DataTable komponenter = CsvData.FK;
-                    HashSet<Entity> allEnts = localDb.GetFjvEntities(tx, true, false);
-                    PropertySetManager psm = new PropertySetManager(localDb, PSetDefs.DefinedSets.DriGraph);
-                    var graph = new GraphWrite.Graph(localDb, psm, komponenter);
-                    foreach (Entity entity in allEnts) graph.AddEntityToPOIs(entity);
-                    //Create clusters of POIs based on a maximum distance
-                    //Distance is reduced, because was having a bad day
-                    IEnumerable<IGrouping<POI, POI>> clusters
-                        = graph.POIs.GroupByCluster((x, y) => x.Point.GetDistanceTo(y.Point), 0.003);
-                    //Iterate over clusters
-                    foreach (IGrouping<POI, POI> cluster in clusters)
-                    {
-                        //SPECIAL CASE
-                        #region SPECIAL CASE: Stikafgreninger
-                        //Special case to get stikafgreninger to show on graph
-                        if (cluster.Any(x =>
-                        {
-                            //Detect stikafgreninger
-                            BlockReference br = x.Owner as BlockReference;
-                            if (br == null) return false;
-                            if (br.RealName() == "STIKAFGRENING") return true;
-                            return false;
-                        }))
-                        {
-                            //Test if cluster has right amount of POIs,
-                            //Should be 3: steelPipe, StikAfgrening, stikPipe
-                            if (cluster.Count() != 3)
-                                throw new System.Exception(
-                                    "StikafgreningsPOI har ikke 3 elementer!\n" +
-                                    $"{string.Join(", ", cluster.Select(x => x.Owner.Handle.ToString()))}");
-                            //Chain references from steel->stikafgrening->stik
-                            POI? stikAfgrening =
-                                cluster.Where(x =>
-                                {
-                                    BlockReference br = x.Owner as BlockReference;
-                                    if (br == null) return false;
-                                    if (br.RealName() == "STIKAFGRENING") return true;
-                                    return false;
-                                })
-                                .FirstOrDefault();
-                            POI? steelPipe =
-                                cluster.Where(x => GetPipeSystem(x.Owner) == PipeSystemEnum.Stål)
-                                .FirstOrDefault();
-                            if (steelPipe == null) throw new System.Exception(
-                                $"Stikafgrening {stikAfgrening.Owner.Handle} har ikke forbindelse til Stål!");
-                            POI? stikPipe =
-                                cluster.Where(x => x.Owner is Polyline && GetPipeSystem(x.Owner) != PipeSystemEnum.Stål)
-                                .FirstOrDefault();
-                            if (stikPipe == null) throw new System.Exception(
-                                $"Stikafgrening {stikAfgrening.Owner.Handle} kan ikke finde stikrør!");
-                            //Assign the references
-                            steelPipe.AddReference(stikAfgrening);
-                            stikAfgrening.AddReference(stikPipe);
-                            //Add a reference from stikpipe to block or the code will
-                            //throw because the connection string will be empty
-                            //if the stikpipe is the last element
-                            stikPipe.AddReference(stikAfgrening);
-                            //Skip rest of the creation
-                            continue;
-                        }
-                        #endregion
-                        //Create unique pairs
-                        var pairs = cluster.SelectMany((value, index) => cluster.Skip(index + 1),
-                                                       (first, second) => new { first, second });
-                        //Create reference to each other for each pair
-                        foreach (var pair in pairs)
-                        {
-                            if (pair.first.Owner.Handle == pair.second.Owner.Handle) continue;
-                            pair.first.AddReference(pair.second);
-                            pair.second.AddReference(pair.first);
-                        }
-                    }
-                }
-                catch (System.Exception ex)
-                {
-                    prdDbg(ex);
-                    tx.Abort();
-                    return;
-                }
-                tx.Commit();
-            }
-        }
-
-        /// <command>GRAPHWRITE</command>
-        /// <summary>
-        /// Draws a graph of the pipe system. Used to check for connectivity and other issues.
-        /// Must be run in fjernevarme fremtid drawing.
-        /// </summary>
-        /// <category>Quality Assurance</category>
-        [CommandMethod("GRAPHWRITE")]
-        public void graphwrite()
-        {
-            DocumentCollection docCol = Application.DocumentManager;
-            Database localDb = docCol.MdiActiveDocument.Database;
-            graphclear();
-            graphpopulate();
-            using (Transaction tx = localDb.TransactionManager.StartTransaction())
-            {
-                try
-                {
-                    System.Data.DataTable komponenter = CsvData.FK;
-                    HashSet<Entity> allEnts = localDb.GetFjvEntities(tx, true, false);
-                    //Remove stiktees which are special tee blocks for stikledninger
-                    allEnts = allEnts.Where(x =>
-                    {
-                        if (x is BlockReference br)
-                            if (br.RealName() == "STIKTEE") return false;
-                        return true;
-                    }).ToHashSet();
-                    PropertySetManager psm = new PropertySetManager(localDb, PSetDefs.DefinedSets.DriGraph);
-                    var graph = new GraphWrite.Graph(localDb, psm, komponenter);
-                    foreach (Entity entity in allEnts)
-                    {
-                        graph.AddEntityToGraphEntities(entity);
-                    }
-                    graph.CreateAndWriteGraph();
-                    //Start the dot engine to create the graph and convert to pdf
-                    System.Diagnostics.Process cmd = new System.Diagnostics.Process();
-                    cmd.StartInfo.FileName = "cmd.exe";
-                    cmd.StartInfo.WorkingDirectory = @"C:\Temp\";
-                    cmd.StartInfo.Arguments = @"/c ""dot -Tpdf MyGraph.dot > MyGraph.pdf""";
-                    cmd.Start();
-                    cmd.WaitForExit();
-                    //Start the dot engine to create the graph and convert to pdf
-                    cmd = new System.Diagnostics.Process();
-                    cmd.StartInfo.FileName = "cmd.exe";
-                    cmd.StartInfo.WorkingDirectory = @"C:\Temp\";
-                    cmd.StartInfo.Arguments = @"/c ""dot -Tsvg MyGraph.dot > MyGraph.svg""";
-                    cmd.Start();
-                    cmd.WaitForExit();
-                    string svgContent = File.ReadAllText(@"C:\Temp\MyGraph.svg");
-                    string htmlContent = $@"
-<!DOCTYPE html>
-<html lang=""da"">
-<head>
-    <meta charset=""UTF-8"">
-    <title>Rørsystem</title>
-    <style>
-        body {{
-            background-color: #121212;  /* Dark background color */
-            color: #ffffff;  /* White text color */
-        }}
-        svg {{
-            filter: invert(1) hue-rotate(180deg);  /* Invert colors and adjust hue */
-        }}
-    </style>
-</head>
-<body>
-    {svgContent}
-</body>
-</html>
-";
-                    File.WriteAllText(@"C:\Temp\MyGraph.html", htmlContent);
-                    string mSedgePath = @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
-                    if (File.Exists(mSedgePath))
-                    {
-                        Process.Start(mSedgePath, @"C:\Temp\MyGraph.html");
-                    }
-                    else
-                    {
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName = @"C:\Temp\MyGraph.html",
-                            UseShellExecute = true
-                        };
-                        Process.Start(psi);
-                    }
-                }
-                catch (System.Exception ex)
-                {
-                    prdDbg(ex);
-                    tx.Abort();
-                    return;
-                }
-                tx.Commit();
-            }
-        }
-        public void graphclear(Database? db = null)
-        {
-            DocumentCollection docCol = Application.DocumentManager;
-            Database localDb = db ?? docCol.MdiActiveDocument.Database;
-            using (Transaction tx = localDb.TransactionManager.StartTransaction())
-            {
-                try
-                {
-                    System.Data.DataTable komponenter = CsvData.FK;
-                    HashSet<Entity> allEnts = localDb.GetFjvEntities(tx, true, false);
-                    PropertySetManager psm = new PropertySetManager(localDb, PSetDefs.DefinedSets.DriGraph);
-                    PSetDefs.DriGraph driGraph = new PSetDefs.DriGraph();
-                    foreach (var item in allEnts)
-                        psm.WritePropertyString(item, driGraph.ConnectedEntities, "");
-                }
-                catch (System.Exception ex)
-                {
-                    prdDbg(ex);
-                    tx.Abort();
-                    return;
-                }
-                tx.Commit();
-            }
         }
 
         /// <command>SELECTBYPS</command>
@@ -2655,10 +2236,18 @@ namespace IntersectUtilities
         }
         public void fixlerlayersmethod(Database localDb)
         {
-            string pathKrydsninger = "X:\\AutoCAD DRI - 01 Civil 3D\\Krydsninger.csv";
-            string pathLag = "X:\\AutoCAD DRI - 01 Civil 3D\\Lag.csv";
-            System.Data.DataTable dtK = CsvReader.ReadCsvToDataTable(pathKrydsninger, "Krydsninger");
-            System.Data.DataTable dtLag = CsvReader.ReadCsvToDataTable(pathLag, "Lag");
+            var krydsninger = Csv.Krydsninger;
+            var lagLer = Csv.LagLer;
+            
+            // Helper to strip -2D and -3D suffixes from layer names for LagLer lookup
+            static string StripSuffix(string? layerName)
+            {
+                if (string.IsNullOrEmpty(layerName)) return string.Empty;
+                if (layerName.EndsWith("-2D")) return layerName[..^3];
+                if (layerName.EndsWith("-3D")) return layerName[..^3];
+                return layerName;
+            }
+            
             using (Transaction tx = localDb.TransactionManager.StartTransaction())
             {
                 try
@@ -2673,11 +2262,11 @@ namespace IntersectUtilities
                     //Lookup linetype specification and link to layer name
                     Dictionary<string, string> layerLineTypeMap = new Dictionary<string, string>();
                     foreach (var layer in layers)
-                    {
-                        string targetLayerName = ReadStringParameterFromDataTable(layer.Name, dtK, "Layer", 0);
-                        string lineTypeName = ReadStringParameterFromDataTable(targetLayerName, dtLag, "LineType", 0);
+                    {                        
+                        string lookupKey = StripSuffix(layer.Name);
+                        string? lineTypeName = lagLer.LineType(lookupKey);
                         if (lineTypeName.IsNoE()) prdDbg($"LineTypeName is missing for {layer.Name}!");
-                        layerLineTypeMap.Add(layer.Name, lineTypeName);
+                        layerLineTypeMap.Add(layer.Name, lineTypeName ?? string.Empty);
                     }
                     //Check if all line types are present
                     HashSet<string> missingLineTypes = new HashSet<string>();
@@ -2708,24 +2297,25 @@ namespace IntersectUtilities
                     foreach (LayerTableRecord ltr in layers)
                     {
                         string layerName = ltr.Name;
-                        if (!dtK.AsEnumerable().Any(row => row[0].ToString() == layerName))
+                        if (!krydsninger.HasNavn(layerName))
                         {
                             prdDbg($"UNKNOWN LAYER: {ltr.Name}");
                             continue;
                         }
-                        string type = ReadStringParameterFromDataTable(layerName, dtK, "Type", 0);
+                        string? type = krydsninger.Type(layerName);
                         if (type == "IGNORE") { prdDbg($"Layer {layerName} IGNORED!"); continue; }
-                        string lerLayerName = ReadStringParameterFromDataTable(layerName, dtK, "Layer", 0);
-                        if (!dtLag.AsEnumerable().Any(row => row[0].ToString() == lerLayerName))
+                        
+                        string lookupKey = StripSuffix(layerName);
+                        if (!lagLer.HasLayer(lookupKey))
                         {
-                            prdDbg($"Ler layer {lerLayerName} not found in Lag.csv! Tilføj laget i Lag.csv.");
+                            prdDbg($"Ler layer {layerName} (lookup: {lookupKey}) not found in LagLer! Tilføj laget i LagLer.csv.");
                             continue;
                         }
-                        string farveString = ReadStringParameterFromDataTable(lerLayerName, dtLag, "Farve", 0);
+                        string? farveString = lagLer.Farve(lookupKey);
                         Color color = UtilsCommon.Utils.ParseColorString(farveString);
                         if (color == null)
                         {
-                            prdDbg($"Failed to read color for layer name {lerLayerName} with colorstring {farveString}. Skipping!");
+                            prdDbg($"Failed to read color for layer name {layerName} with colorstring {farveString}. Skipping!");
                             continue;
                         }
                         ltr.CheckOrOpenForWrite();
@@ -3475,7 +3065,6 @@ namespace IntersectUtilities
             Editor editor = docCol.MdiActiveDocument.Editor;
             Document doc = docCol.MdiActiveDocument;
             CivilDocument civilDoc = Autodesk.Civil.ApplicationServices.CivilApplication.ActiveDocument;
-            var dt = CsvData.FK;
             using (Transaction tx = localDb.TransactionManager.StartTransaction())
             {
                 try
@@ -3851,7 +3440,6 @@ namespace IntersectUtilities
             {
                 try
                 {
-                    System.Data.DataTable dt = CsvData.FK;
                     PropertySetManager psmPipeLineData = new PropertySetManager(
                         localDb,
                         PSetDefs.DefinedSets.DriPipelineData);
@@ -3905,8 +3493,7 @@ namespace IntersectUtilities
             {
                 try
                 {
-                    System.Data.DataTable dt = CsvData.FK;
-                    var ents = localDb.GetFjvBlocks(tx, dt, false, false, true);
+                    var ents = localDb.GetFjvBlocks(tx, false, false, true);
                     List<string> brNames = ents.Select(x => x.RealName())
                         .Distinct().OrderBy(x => x).ToList();
                     StringGridForm sgf = new StringGridForm(brNames, "Select block NAME to set Serie: ");
@@ -4134,23 +3721,7 @@ namespace IntersectUtilities
                 try
                 {
                     #region Read CSV
-                    System.Data.DataTable dt = default;
-                    try
-                    {
-                        dt = CsvReader.ReadCsvToDataTable(
-                                @"X:\AutoCAD DRI - 01 Civil 3D\FJV Dynamiske Komponenter.csv", "FjvKomponenter");
-                    }
-                    catch (System.Exception ex)
-                    {
-                        prdDbg("Reading of FJV Dynamiske Komponenter.csv failed!");
-                        prdDbg(ex);
-                        throw;
-                    }
-                    if (dt == default)
-                    {
-                        prdDbg("Reading of FJV Dynamiske Komponenter.csv failed!");
-                        throw new System.Exception("Failed to read FJV Dynamiske Komponenter.csv");
-                    }
+                    var fk = Csv.FjvDynamicComponents;
                     #endregion
                     PropertySetManager psmPLD = new PropertySetManager(
                         localDb,
@@ -4197,7 +3768,7 @@ namespace IntersectUtilities
                     var leafVerts = startingGraph.Vertices.Where(
                         x => startingGraph.OutEdges(x).Where(
                             y => y.EndType != EndType.WeldOn).Count() == 1);
-                    var startVert = leafVerts.MaxBy(x => GetDn(x, dt));
+                    var startVert = leafVerts.MaxBy(x => GetDn(x));
                     //var vert = startingGraph.Vertices.Where(
                     //    x => x.Handle.ToString() == "11EFA0").FirstOrDefault();
                     //foreach (var edge in startingGraph.OutEdges(vert))
@@ -4229,7 +3800,7 @@ namespace IntersectUtilities
                         new Dictionary<string, ClusteredAdjacencyGraph<Entity, EdgeTyped>>();
                     foreach (var vertex in adjacencyGraph.Vertices)
                     {
-                        string clusterName = GetClusterName(vertex, psmPLD, driPLD, dt);
+                        string clusterName = GetClusterName(vertex, psmPLD, driPLD);
                         if (clusterName.IsNoE()) continue;
                         if (!clusterDict.ContainsKey(clusterName))
                             clusterDict[clusterName] = clusteredGraph.AddCluster();
@@ -4256,8 +3827,8 @@ namespace IntersectUtilities
                                 string dn1 = ComponentSchedule.ReadDynamicCsvProperty(br, DynamicProperty.DN1);
                                 string dn2 = ComponentSchedule.ReadDynamicCsvProperty(br, DynamicProperty.DN2);
                                 string dnStr = dn2 == "0" ? dn1 : dn1 + "/" + dn2;
-                                system = ComponentSchedule.ReadComponentSystem(br, dt);
-                                string type = ComponentSchedule.ReadComponentType(br, dt);
+                                system = ComponentSchedule.ReadComponentSystem(br, fk);
+                                string type = ComponentSchedule.ReadComponentType(br, fk);
                                 if (type == "Reduktion")
                                     args.VertexFormat.StrokeColor =
                                     QuikGraph.Graphviz.Dot.GraphvizColor.Red;
@@ -4295,7 +3866,7 @@ namespace IntersectUtilities
                 tx.Commit();
             }
         }
-        private int GetDn(Entity entity, System.Data.DataTable dt)
+        private int GetDn(Entity entity)
         {
             if (entity is Polyline pline)
                 return GetPipeDN(pline);
@@ -4310,7 +3881,7 @@ namespace IntersectUtilities
             else throw new System.Exception("Invalid entity type");
         }
         private string GetClusterName(
-            Entity entity, PropertySetManager psm, PSetDefs.DriPipelineData pld, System.Data.DataTable dt)
+            Entity entity, PropertySetManager psm, PSetDefs.DriPipelineData pld)
         {
             if (entity is Polyline)
                 return psm.ReadPropertyString(entity, pld.BelongsToAlignment);
@@ -4765,11 +4336,7 @@ namespace IntersectUtilities
                     #endregion
 
                     #region Read Csv Data for Layers
-                    //Establish the pathnames to files
-                    //Files should be placed in a specific folder on desktop
-                    string pathKrydsninger = "X:\\AutoCAD DRI - 01 Civil 3D\\Krydsninger.csv";
-
-                    System.Data.DataTable dtKrydsninger = CsvReader.ReadCsvToDataTable(pathKrydsninger, "Krydsninger");
+                    var krydsninger = Csv.Krydsninger;
                     #endregion
 
                     #region Load linework for analysis
@@ -4791,7 +4358,7 @@ namespace IntersectUtilities
                         pline.ColorIndex = 256;
 
                         //Check if pline's layer exists in krydsninger
-                        string nameInFile = ReadStringParameterFromDataTable(pline.Layer, dtKrydsninger, "Navn", 0);
+                        string? nameInFile = krydsninger.Navn(pline.Layer);
                         if (nameInFile.IsNoE())
                         {
                             layerNameNotDefined++;
@@ -4799,7 +4366,7 @@ namespace IntersectUtilities
                         }
 
                         //Check if pline's layer is IGNOREd
-                        string typeInFile = ReadStringParameterFromDataTable(pline.Layer, dtKrydsninger, "Type", 0);
+                        string? typeInFile = krydsninger.Type(pline.Layer);
                         if (typeInFile == "IGNORE")
                         {
                             layerNameIgnored++;
@@ -4807,8 +4374,7 @@ namespace IntersectUtilities
                         }
 
                         //Check if diameter information exists
-                        string diameterDef = ReadStringParameterFromDataTable(pline.Layer,
-                                dtKrydsninger, "Diameter", 0);
+                        string? diameterDef = krydsninger.Diameter(pline.Layer);
                         if (diameterDef.IsNoE())
                         {
                             layerDiameterDefMissing++;
@@ -4913,9 +4479,7 @@ namespace IntersectUtilities
                 try
                 {
                     #region Read krydsninger
-                    string pathKrydsninger = "X:\\AutoCAD DRI - 01 Civil 3D\\Krydsninger.csv";
-                    System.Data.DataTable dtK = CsvReader.ReadCsvToDataTable(pathKrydsninger, "Krydsninger");
-                    if (dtK == null) throw new System.Exception("Failed to read Krydsninger.csv!");
+                    var krydsninger = Csv.Krydsninger;
                     #endregion
 
                     #region Create layer for labels
@@ -4932,8 +4496,7 @@ namespace IntersectUtilities
                     {
                         string layerName = group.Key;
 
-                        string labelRecipe =
-                            ReadStringParameterFromDataTable(layerName, dtK, "Label", 0);
+                        string? labelRecipe = krydsninger.Label(layerName);
 
                         if (labelRecipe.IsNoE())
                         {
@@ -4994,6 +4557,19 @@ namespace IntersectUtilities
                 tx.Commit();
             }
         }
+
+        /// <command>PRINTPIPEVOLUMESUMMARY</command>
+        /// <summary>
+        /// Udskriver en samlet volumen- og længdeoversigt for alle rør i Model Space baseret på PipeScheduleV2-data.
+        /// Kommandoen henter alle polylines, identificerer tilhørende rørparametre (system, type, DN, indvendig diameter)
+        /// og grupperer dem efter (system–type–DN) til én samlet linje pr. kategori.
+        /// ENKELT-rør kan behandles som dobbelt længde, hvis de er tegnet som én polyline.
+        /// Twin-rør tælles automatisk dobbelt i volumenberegningen.
+        /// Output sorteres efter system (STÅL først), derefter DN faldende og til sidst type (ENKELT før Twin).
+        /// Anvendes til hurtig mængdeudtræk af rørlængder og volumen direkte fra tegningen.
+        /// Komandoen tager ikke højde for komponenter.
+        /// </summary>
+        /// <category>PipeSchedule</category>
 
         [CommandMethod("PRINTPIPEVOLUMESUMMARY")]
         public static void PrintPipeVolumeSummaryAllInOne()
@@ -5130,16 +4706,16 @@ namespace IntersectUtilities
             {
                 string label = $"{entry.Key.system}-{entry.Key.type}-DN{entry.Key.dn}";
                 double len = Math.Round(entry.Value.totalLength, 1);
-                double vol = Math.Round(entry.Value.totalVolume, 1);
-                string line = string.Format("{0,-30}{1,19:0.0}{2,14:0.0}",
+                double vol = Math.Round(entry.Value.totalVolume, 3);
+                string line = string.Format("{0,-30}{1,19:0.0}{2,14:0.000}",
                     label, len, vol);
                 ed.WriteMessage("\n" + line);
             }
 
             // Print total line.
             double totLen = Math.Round(overallLength, 1);
-            double totVol = Math.Round(overallVolume, 1);
-            string totalLine = string.Format("{0,-30}{1,19:0.0}{2,14:0.0}",
+            double totVol = Math.Round(overallVolume, 3);
+            string totalLine = string.Format("{0,-30}{1,19:0.0}{2,14:0.000}",
                 "TOTAL", totLen, totVol);
             ed.WriteMessage("\n" + totalLine);
         }
@@ -5588,6 +5164,537 @@ namespace IntersectUtilities
             }
 
             tx.Abort();
+        }
+
+        private static double _lastTangentArcRadius = 2.5;
+
+        /// <command>TANGENTARCFROMLINE</command>
+        /// <summary>
+        /// Tegner en bue med angivet radius, der er tangent til en valgt LINE.
+        /// Brugeren vælger først radius, derefter en linje og til sidst et retningspunkt,
+        /// hvorefter kommandoen beregner korrekt side/kvadrant og indsætter buen i Model Space.
+        /// Anvendes til hurtigt at modellere standard-buer tangent til et eksisterende tracé.
+        /// </summary>
+        /// <category>Utilities</category>
+
+        [CommandMethod("TANGENTARCFROMLINE")]
+        public void TangentArcFromLine()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            PromptDistanceOptions arcRadiusOptions = new PromptDistanceOptions("\nEnter arc radius");
+            arcRadiusOptions.AllowNegative = false;
+            arcRadiusOptions.AllowNone = false;
+            arcRadiusOptions.DefaultValue = _lastTangentArcRadius;
+            arcRadiusOptions.UseDefaultValue = true;
+
+            PromptDoubleResult arcRadiusResult = ed.GetDistance(arcRadiusOptions);
+            if (arcRadiusResult.Status != PromptStatus.OK)
+                return;
+
+            double arcRadius = arcRadiusResult.Value;
+            _lastTangentArcRadius = arcRadius;
+
+            var baseLineOptions = new PromptEntityOptions("\nSelect line");
+            baseLineOptions.SetRejectMessage("\nNot a line");
+            baseLineOptions.AddAllowedClass(typeof(Line), exactMatch: true);
+
+            var baseLineResult = ed.GetEntity(baseLineOptions);
+            if (baseLineResult.Status != PromptStatus.OK)
+                return;
+
+            Point3d startPoint;
+            Point3d endPoint;
+            double baseLineAngle;
+            Line baseLineEntity;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    baseLineEntity = (Line)tr.GetObject(baseLineResult.ObjectId, OpenMode.ForRead);
+
+                    startPoint = baseLineEntity.StartPoint;
+                    endPoint = baseLineEntity.EndPoint;
+                    baseLineAngle = baseLineEntity.Angle;
+
+                    tr.Commit();
+                }
+                catch (System.Exception ex)
+                {
+                    prdDbg(ex);
+                    tr.Abort();
+                    return;
+                }
+            }
+
+            var directionPointOptions = new PromptPointOptions("\nSelect direction");
+
+            var directionPointResult = ed.GetPoint(directionPointOptions);
+            if (directionPointResult.Status != PromptStatus.OK)
+                return;
+
+            Point3d directionPoint = directionPointResult.Value;
+            Point3d midPoint = startPoint.MidPoint(endPoint);
+
+            Vector3d baseLineVectorUnit = startPoint.GetVectorTo(endPoint).GetNormal();
+            Vector3d perpendicularVectorUnit = baseLineVectorUnit.RotateBy(Math.PI / 2, Vector3d.ZAxis);
+            Vector3d directionVectorUnit = midPoint.GetVectorTo(directionPoint).GetNormal();
+
+            double angleToBase = directionVectorUnit.GetAngleTo(baseLineVectorUnit);
+            double angleToPerpendicular = directionVectorUnit.GetAngleTo(perpendicularVectorUnit);
+
+            Point3d arcCenterPoint;
+            double arcStartAngle;
+            double arcEndAngle;
+
+            double arcWidth = Math.Min(startPoint.DistanceTo(directionPoint), endPoint.DistanceTo(directionPoint));
+
+            double ratio = arcWidth / (2 * arcRadius);
+            ratio = Math.Clamp(ratio, -1.0, 1.0);
+
+            double halfAngle = Math.Asin(ratio);
+
+            if (angleToBase < Math.PI / 2 && angleToPerpendicular < Math.PI / 2)
+            {
+                arcCenterPoint = endPoint + perpendicularVectorUnit.MultiplyBy(arcRadius);
+                arcStartAngle = baseLineAngle - Math.PI / 2;
+                arcEndAngle = arcStartAngle + halfAngle;
+            }
+            else if (angleToBase > Math.PI / 2 && angleToPerpendicular < Math.PI / 2)
+            {
+                arcCenterPoint = startPoint + perpendicularVectorUnit.MultiplyBy(arcRadius);
+                arcEndAngle = baseLineAngle - Math.PI / 2;
+                arcStartAngle = arcEndAngle - halfAngle;
+            }
+            else if (angleToBase > Math.PI / 2 && angleToPerpendicular > Math.PI / 2)
+            {
+                arcCenterPoint = startPoint - perpendicularVectorUnit.MultiplyBy(arcRadius);
+                arcStartAngle = baseLineAngle + Math.PI / 2;
+                arcEndAngle = arcStartAngle + halfAngle;
+            }
+            else if (angleToBase < Math.PI / 2 && angleToPerpendicular > Math.PI / 2)
+            {
+                arcCenterPoint = endPoint - perpendicularVectorUnit.MultiplyBy(arcRadius);
+                arcEndAngle = baseLineAngle + Math.PI / 2;
+                arcStartAngle = arcEndAngle - halfAngle;
+            }
+            else
+            {
+                prdDbg("Could not determine quadrant");
+                return;
+            }
+
+            Arc arc = new Arc(arcCenterPoint, arcRadius, arcStartAngle, arcEndAngle);
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    BlockTableRecord btr = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                    btr.AppendEntity(arc);
+                    tr.AddNewlyCreatedDBObject(arc, true);
+
+                    tr.Commit();
+                }
+                catch (System.Exception ex)
+                {
+                    prdDbg(ex);
+                    tr.Abort();
+                    return;
+                }
+            }
+        }
+
+        /// <command>SETMAPCS</command>
+        /// <summary>
+        /// Sætter koordinatsystem (Projection) for det aktive Map-projekt via en keyword-menu.
+        /// </summary>
+        /// <category>GIS</category>
+
+        [CommandMethod("SETMAPCS")]
+        public void SetMapCS()
+        {
+            MapApplication mapApp = HostMapApplicationServices.Application;
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            Autodesk.Gis.Map.Project.ProjectModel projModel = mapApp.ActiveProject;
+
+            var coordinateSystemDictionary = new Dictionary<string, string>
+            {
+                {"UTM-32N", "ETRS89.UTM-32N"},
+                {"DKTM3",   "ETRF89.DKTM3"}
+            };
+
+            PromptKeywordOptions promptKeywordOptions = new PromptKeywordOptions("\nSelect coordinate system");
+            foreach (var key in coordinateSystemDictionary.Keys)
+                promptKeywordOptions.Keywords.Add(key);
+
+            PromptResult promptResult = ed.GetKeywords(promptKeywordOptions);
+            if (promptResult.Status != PromptStatus.OK)
+                return;
+
+            string selectedCoordinateSystemKey = promptResult.StringResult;
+
+            if (coordinateSystemDictionary.TryGetValue(selectedCoordinateSystemKey, out string selectedCoordinateSystemValue))
+            {
+                projModel.Projection = selectedCoordinateSystemValue;
+                prdDbg("\nCoordinate system has successfully been assigned to " + selectedCoordinateSystemKey);
+            }
+            else
+                prdDbg("\nCoordinate system is invalid");
+        }
+
+        private static double _lastTangentOffsetArcRadius = 104.0;
+
+        /// <command>TANGENTOFFSETARC</command>
+        /// <summary>
+        /// Tegner en bue med angivet radius, der er tangent til en valgt respektafstands-blok
+        /// (cirkel, bue eller lukket polyline) og orienteret efter en valgt styre-polyline.
+        /// Kommandoen finder nærmeste punkt på polylinen, beregner tangentpunkt og centrum for buen
+        /// og indsætter en kort bue, der overholder den ønskede radius og respektafstand til blokken.
+        /// Velegnet til at modellere mindste bøjningsradius omkring krydsende rør/kabler.
+        /// </summary>
+        /// <category>Utilities</category>
+
+        [CommandMethod("TANGENTOFFSETARC")]
+        public void TangentOffsetArc()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            PromptDistanceOptions arcRadiusOptions = new PromptDistanceOptions("\nEnter arc radius");
+            arcRadiusOptions.AllowNegative = false;
+            arcRadiusOptions.AllowNone = false;
+            arcRadiusOptions.DefaultValue = _lastTangentOffsetArcRadius;
+            arcRadiusOptions.UseDefaultValue = true;
+
+            PromptDoubleResult arcRadiusResult = ed.GetDistance(arcRadiusOptions);
+            if (arcRadiusResult.Status != PromptStatus.OK)
+                return;
+
+            double arcRadius = arcRadiusResult.Value;
+            _lastTangentOffsetArcRadius = arcRadius;
+
+            PromptNestedEntityOptions promptNestedEntityOptions = new PromptNestedEntityOptions("\nSelect the clearance block that the arc must be tangent to");
+
+            PromptNestedEntityResult promptNestedEntityResult = ed.GetNestedEntity(promptNestedEntityOptions);
+            if (promptNestedEntityResult.Status != PromptStatus.OK)
+                return;
+
+            Circle clearanceCircle = null;
+            Arc clearanceArc = null;
+            Polyline clearancePolyline = null;
+            Point3d clearanceCenterPoint;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    Entity entity = tr.GetObject(promptNestedEntityResult.ObjectId, OpenMode.ForRead) as Entity;
+
+                    Matrix3d transform = Matrix3d.Identity;
+
+                    foreach (ObjectId id in promptNestedEntityResult.GetContainers())
+                    {
+                        BlockReference br = tr.GetObject(id, OpenMode.ForRead) as BlockReference;
+                        if (br != null)
+                            transform = br.BlockTransform * transform;
+                    }
+
+                    if (entity is Circle entityCircle)
+                    {
+                        prdDbg("\nEntity is a circle");
+                        clearanceCircle = (Circle)entityCircle.Clone();
+                        clearanceCircle.TransformBy(transform);
+                        clearanceCenterPoint = clearanceCircle.Center;
+                    }
+                    else if (entity is Arc entityArc)
+                    {
+                        prdDbg("\nEnity is an arc");
+                        clearanceArc = (Arc)entityArc.Clone();
+                        clearanceArc.TransformBy(transform);
+                        clearanceCenterPoint = clearanceArc.Center;
+                    }
+                    else if (entity is Polyline entityPolyline)
+                    {
+                        prdDbg("\nEntity is a polyline");
+                        clearancePolyline = (Polyline)entityPolyline.Clone();
+                        clearancePolyline.TransformBy(transform);
+                        clearancePolyline.Closed = true;
+                        clearanceCenterPoint = clearancePolyline.GetCenter();
+                    }
+                    else
+                    {
+                        prdDbg("\nEntity is not valid");
+                        return;
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    prdDbg(ex);
+                    tr.Abort();
+                    return;
+                }
+            }
+
+            var promptPolylineOptions = new PromptEntityOptions("\nSelect a polyline for the arc to follow");
+            promptPolylineOptions.SetRejectMessage("\nEntity is not a polyline");
+            promptPolylineOptions.AddAllowedClass(typeof(Polyline), exactMatch: true);
+
+            var promptPolylineResult = ed.GetEntity(promptPolylineOptions);
+            if (promptPolylineResult.Status != PromptStatus.OK)
+                return;
+
+            Point3d directionPoint;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    Polyline directionPolyline = tr.GetObject(promptPolylineResult.ObjectId, OpenMode.ForRead) as Polyline;
+                    directionPoint = directionPolyline.GetClosestPointTo(clearanceCenterPoint, true);
+                }
+                catch (System.Exception ex)
+                {
+                    prdDbg(ex);
+                    tr.Abort();
+                    return;
+                }
+            }
+
+            Vector3d directionVectorUnit = clearanceCenterPoint.GetVectorTo(directionPoint).GetNormal();
+            Line directionLine = new Line(clearanceCenterPoint, directionPoint);
+
+            double arcStartAngle;
+            double arcEndAngle;
+
+            double arcWidth = 5.0;
+
+            double halfAngle = Math.Asin(arcWidth / (2 * arcRadius));
+
+            Arc arc = new Arc();
+
+            if (clearanceCircle != null)
+            {
+                Point3d arcTangentPoint = clearanceCenterPoint + directionVectorUnit.MultiplyBy(clearanceCircle.Radius);
+                Point3d arcCenterPoint = arcTangentPoint - directionVectorUnit.MultiplyBy(arcRadius);
+
+                arcStartAngle = directionLine.Angle - halfAngle;
+                arcEndAngle = directionLine.Angle + halfAngle;
+
+                arc = new Arc(arcCenterPoint, arcRadius, arcStartAngle, arcEndAngle);
+            }
+            else if (clearanceArc != null)
+            {
+                Point3d arcTangentPoint = clearanceCenterPoint + directionVectorUnit.MultiplyBy(clearanceArc.Radius);
+                Point3d arcCenterPoint = arcTangentPoint - directionVectorUnit.MultiplyBy(arcRadius);
+
+                arcStartAngle = directionLine.Angle - halfAngle;
+                arcEndAngle = directionLine.Angle + halfAngle;
+
+                arc = new Arc(arcCenterPoint, arcRadius, arcStartAngle, arcEndAngle);
+            }
+            else if (clearancePolyline != null)
+            {
+                int closestPointIndex = -1;
+                int secondClosestPointIndex = -1;
+                double closestPointDistance = double.MaxValue;
+                double secondClosestPointDistance = double.MaxValue;
+
+                for (int i = 0; i < clearancePolyline.NumberOfVertices; i++)
+                {
+                    Point3d vertex = clearancePolyline.GetPoint3dAt(i);
+                    double distanceToVertex = directionPoint.GetVectorTo(vertex).LengthSqrd;
+
+                    if (distanceToVertex < closestPointDistance)
+                    {
+                        secondClosestPointDistance = closestPointDistance;
+                        secondClosestPointIndex = closestPointIndex;
+
+                        closestPointDistance = distanceToVertex;
+                        closestPointIndex = i;
+                    }
+                    else if (distanceToVertex < secondClosestPointDistance)
+                    {
+                        secondClosestPointDistance = distanceToVertex;
+                        secondClosestPointIndex = i;
+                    }
+                }
+
+                Point3d closestPoint = clearancePolyline.GetPoint3dAt(closestPointIndex);
+                Point3d secondClosestPoint = clearancePolyline.GetPoint3dAt(secondClosestPointIndex);
+
+                double distanceBetweenPoints = closestPoint.DistanceTo(secondClosestPoint);
+
+                if (arcRadius < distanceBetweenPoints / 2)
+                {
+                    prdDbg("\nRadius too small for clerance");
+                    return;
+                }
+
+                double arcHeight = arcRadius - Math.Sqrt(arcRadius.Pow(2) - (distanceBetweenPoints / 2).Pow(2));
+
+                Point3d midPoint = closestPoint.MidPoint(secondClosestPoint);
+
+                double cleranceHalfHeight = clearanceCenterPoint.DistanceTo(midPoint);
+
+                Vector3d vertical = new Vector3d(0, 1, 0);
+
+                Point3d arcCenterPoint;
+
+                if (directionLine.Angle > Math.PI)
+                {
+                    Point3d arcTangentPoint = clearanceCenterPoint - vertical.MultiplyBy(cleranceHalfHeight + arcHeight);
+                    arcCenterPoint = arcTangentPoint + vertical.MultiplyBy(arcRadius);
+
+                    arcStartAngle = 3 * Math.PI / 2 - halfAngle;
+                    arcEndAngle = 3 * Math.PI / 2 + halfAngle;
+                }
+                else
+                {
+                    Point3d arcTangentPoint = clearanceCenterPoint + vertical.MultiplyBy(cleranceHalfHeight + arcHeight);
+                    arcCenterPoint = arcTangentPoint - vertical.MultiplyBy(arcRadius);
+
+                    arcStartAngle = Math.PI / 2 - halfAngle;
+                    arcEndAngle = Math.PI / 2 + halfAngle;
+                }
+
+                arc = new Arc(arcCenterPoint, arcRadius, arcStartAngle, arcEndAngle);
+            }
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    BlockTableRecord btr = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                    btr.AppendEntity(arc);
+                    tr.AddNewlyCreatedDBObject(arc, true);
+
+                    tr.Commit();
+
+                }
+                catch (System.Exception ex)
+                {
+                    prdDbg(ex);
+                    tr.Abort();
+                    return;
+                }
+            }
+        }
+
+        /// <command>CHECKSOILCOVER</command>
+        /// <summary>
+        /// Går alle længdeprofiler igennem og tjekker om et ønskede jorddække er overholdt.
+        /// Der tjekkes for hver 5 m (station). Hvis en station har mindre end det ønsket jorddække gives der besked i kommandovinduet
+        /// Hvis en længdeprofil indeholder profiler der ikke er fuldendte bliver brugeren gjort opmærksom.
+        /// </summary>
+        /// <category>Longitudinal Profiles</category>
+
+        [CommandMethod("CHECKSOILCOVER")]
+        public void CheckSoilCover()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+            CivilDocument civDoc = CivilApplication.ActiveDocument;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    double toleranceCover = 0.0;
+
+                    PromptIntegerOptions soilCoverOptions = new PromptIntegerOptions("\nMinimum soil cover in cm:");
+                    soilCoverOptions.AllowNegative = false;
+                    soilCoverOptions.AllowNone = false;
+                    soilCoverOptions.DefaultValue = 60;
+                    soilCoverOptions.UseDefaultValue = true;
+
+                    PromptIntegerResult soilCoverResult = ed.GetInteger(soilCoverOptions);
+                    if (soilCoverResult.Status != PromptStatus.OK)
+                        return;
+
+                    double minimumSoilCover = soilCoverResult.Value / 100.0;
+
+                    List<Alignment> alignments = new List<Alignment>();
+
+                    foreach (ObjectId alignId in civDoc.GetAlignmentIds())
+                    {
+                        Alignment alignment = tr.GetObject(alignId, OpenMode.ForRead) as Alignment;
+
+                        if (alignment != null)
+                            alignments.Add(alignment);
+                    }
+
+                    var orderedAlignments = alignments.OrderBy(a => a.Name).ToList();
+
+                    foreach (Alignment alignment in orderedAlignments)
+                    {
+                        ObjectIdCollection profileIds = alignment.GetProfileIds();
+
+                        Profile surface = null;
+                        Profile top = null;
+
+                        foreach (ObjectId profileId in profileIds)
+                        {
+                            Profile profile = tr.GetObject(profileId, OpenMode.ForRead) as Profile;
+
+                            if (profile.Name.Contains("surface"))
+                                surface = profile;
+                            else if (profile.Name.Contains("TOP"))
+                                top = profile;
+                        }
+
+                        if (surface == null || top == null)
+                        {
+                            prdDbg($"\n{alignment.Name} failed due to missing profiles");
+                            continue;
+                        }
+
+                        try
+                        {
+                            prdDbg($"\n{alignment.Name}:");
+
+                            for (double station = alignment.StartingStation; station < alignment.EndingStation; station += 5.0)
+                            {
+                                double surfaceKote = surface.ElevationAt(station);
+                                double topKote = top.ElevationAt(station);
+
+                                double soilCover = surfaceKote - topKote;
+
+                                if (soilCover < minimumSoilCover - toleranceCover)
+                                    prdDbg($"{soilCover:F2} at station {station}");
+                            }
+
+                            double soilCoverEndingStation = surface.ElevationAt(alignment.EndingStation) - top.ElevationAt(alignment.EndingStation);
+
+                            if (soilCoverEndingStation < minimumSoilCover - toleranceCover)
+                                prdDbg($"{soilCoverEndingStation:F2} at station {alignment.EndingStation:F0}");
+                        }
+                        catch
+                        {
+                            prdDbg("Profiles does not cover the entire profileview");
+                            continue;
+                        }
+                    }
+
+                    tr.Commit();
+                }
+                catch (System.Exception ex)
+                {
+                    prdDbg(ex);
+                    tr.Abort();
+                    return;
+                }
+            }
         }
 
     }

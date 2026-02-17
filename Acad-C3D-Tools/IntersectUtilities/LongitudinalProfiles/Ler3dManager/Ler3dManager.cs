@@ -4,6 +4,8 @@ using Autodesk.Civil.DatabaseServices;
 
 using IntersectUtilities.UtilsCommon;
 using IntersectUtilities.UtilsCommon.DataManager;
+using IntersectUtilities.UtilsCommon.DataManager.CsvData;
+using static IntersectUtilities.UtilsCommon.Utils;
 
 using NetTopologySuite.Geometries;
 
@@ -25,10 +27,22 @@ namespace IntersectUtilities.LongitudinalProfiles
         bool IsPointWithinPolygon(Entity ent, Point3d p3d);
         Entity GetEntityByHandle(string handle);
         HashSet<Database> GetDatabases();
+        /// <summary>
+        /// Gets the database by filename (without extension).
+        /// For Ler3dManagerFile, returns the single database regardless of filename.
+        /// For Ler3dManagerFolder, returns the database matching the filename.
+        /// </summary>
+        Database? GetDatabaseByFileName(string fileNameWithoutExtension);
+        /// <summary>
+        /// Gets the database from the full ID string (e.g. CogoPoint.PointName).
+        /// For Ler3dManagerFile, returns the single database.
+        /// For Ler3dManagerFolder, parses the string to determine which database to return.
+        /// </summary>
+        Database? GetDatabaseByIdString(string idString);
     }
     public abstract class Ler3dManagerBase : ILer3dManager, IDisposable
     {
-        private bool _disposed = false;
+        protected bool _disposed = false;
         protected abstract bool IsLoadValid();
         public virtual void Dispose(bool disposing)
         {
@@ -46,6 +60,8 @@ namespace IntersectUtilities.LongitudinalProfiles
         public abstract bool IsPointWithinPolygon(Entity ent, Point3d p3d);
         public abstract Entity GetEntityByHandle(string handle);
         public abstract HashSet<Database> GetDatabases();
+        public abstract Database? GetDatabaseByFileName(string fileNameWithoutExtension);
+        public abstract Database? GetDatabaseByIdString(string idString);
     }
     public class Ler3dManagerFile : Ler3dManagerBase
     {
@@ -60,6 +76,7 @@ namespace IntersectUtilities.LongitudinalProfiles
         protected override bool IsLoadValid() => _db != null;
         public override void Dispose(bool disposing)
         {
+            if (_disposed) return;
             if (disposing)
             {
                 _tx.Abort();
@@ -88,8 +105,7 @@ namespace IntersectUtilities.LongitudinalProfiles
 
                 foreach (var pl in plines)
                 {
-                    string type = UtilsDataTables.ReadStringParameterFromDataTable(
-                        pl.Layer, CsvData.Kryds, "Type", 0);
+                    string type = Csv.Krydsninger.Type(pl.Layer) ?? "";
                     if (type == "IGNORE") continue;
 
                     List<Point3d> p3dcol = new List<Point3d>();
@@ -120,6 +136,8 @@ namespace IntersectUtilities.LongitudinalProfiles
             return _db.Go<Entity>(handle);
         }
         public override HashSet<Database> GetDatabases() => new HashSet<Database> { _db };
+        public override Database? GetDatabaseByFileName(string fileNameWithoutExtension) => _db;
+        public override Database? GetDatabaseByIdString(string idString) => _db;
     }
     public class Ler3dManagerFolder : Ler3dManagerBase
     {
@@ -141,6 +159,19 @@ namespace IntersectUtilities.LongitudinalProfiles
 
                 if (mpg == null)
                 {
+                    prdDbg("No MPolygon found in " + db.Filename + "! Civil will crash in:");
+                    System.Windows.Forms.Application.DoEvents();
+                    System.Threading.Thread.Sleep(1000);
+                    for (int i = 5; i == -1; i--)
+                    {
+                        prdDbg($"T minus {i}");
+                        System.Windows.Forms.Application.DoEvents();
+                        System.Threading.Thread.Sleep(1000);
+                    }
+                    prdDbg("CRASHING NOW!");
+                    System.Windows.Forms.Application.DoEvents();
+                    System.Threading.Thread.Sleep(1000);
+
                     this.Dispose(true);
                     throw new Exception($"No MPolygon found in {db.Filename}!");
                 }
@@ -156,6 +187,7 @@ namespace IntersectUtilities.LongitudinalProfiles
             !storage.Values.Any(x => x == null);
         public override void Dispose(bool disposing)
         {
+            if (_disposed) return;
             if (disposing)
             {
                 foreach (Transaction item in trans?.Values)
@@ -203,8 +235,7 @@ namespace IntersectUtilities.LongitudinalProfiles
                     var plines = db.ListOfType<Polyline3d>(tx);
                     foreach (var pl in plines)
                     {
-                        string type = UtilsDataTables.ReadStringParameterFromDataTable(
-                            pl.Layer, CsvData.Kryds, "Type", 0);
+                        string type = Csv.Krydsninger.Type(pl.Layer) ?? "";
                         if (type == "IGNORE") continue;
 
                         List<Point3d> p3dcol = new List<Point3d>();
@@ -262,6 +293,23 @@ namespace IntersectUtilities.LongitudinalProfiles
                 $"Received handle {handle} which does not match the regex!");
         }
         public override HashSet<Database> GetDatabases() => [.. storage.Values];
+        public override Database? GetDatabaseByFileName(string fileNameWithoutExtension)
+        {
+            if (storage.TryGetValue(fileNameWithoutExtension, out var db))
+                return db;
+            return null;
+        }
+        public override Database? GetDatabaseByIdString(string idString)
+        {
+            if (rgx.IsMatch(idString))
+            {
+                var match = rgx.Match(idString);
+                string area = match.Groups["AREA"].Value;
+                if (storage.TryGetValue(area, out var db))
+                    return db;
+            }
+            return null;
+        }
     }
     public static class Ler3dManagerFactory
     {

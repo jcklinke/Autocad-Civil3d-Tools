@@ -10,8 +10,6 @@ using NetTopologySuite.Geometries;
 using NorsynHydraulicCalc;
 using NorsynHydraulicCalc.Pipes;
 
-using NorsynHydraulicShared;
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,7 +17,7 @@ using System.Reflection;
 
 namespace DimensioneringV2.GraphFeatures
 {
-    public class AnalysisFeature : GeometryFeature, IFeature, ICloneable, IHydraulicSegment, IInfoForFeature
+    public sealed class AnalysisFeature : GeometryFeature, IFeature, ICloneable, IInfoForFeature
     {
         #region Constructors
         public AnalysisFeature() : base() { }
@@ -34,32 +32,36 @@ namespace DimensioneringV2.GraphFeatures
         public AnalysisFeature(AnalysisFeature analysisFeature) : base(analysisFeature)
         {
             foreach (var field in analysisFeature.Fields) this[field] = analysisFeature[field];
-            this.OriginalGeometry = analysisFeature.OriginalGeometry;
-            this.Elevations = new ElevationProfileCache(this, OriginalGeometry);
+            this.Geometry25832 = analysisFeature.Geometry25832;
+            this.Elevations = new ElevationProfileCache(this, Geometry25832);
         }
         public AnalysisFeature(
-            NetTopologySuite.Geometries.Geometry? geometry,
-            OriginalGeometry originalGeometry) : base(geometry)
+            LineString geometry25832,
+            Dictionary<string, object> attributes) : base(geometry25832)
         {
-            OriginalGeometry = originalGeometry;
-            Elevations = new ElevationProfileCache(this, originalGeometry);
-        }
-        public AnalysisFeature(
-            NetTopologySuite.Geometries.Geometry geometry,
-            OriginalGeometry originalGeometry,
-            Dictionary<string, object> attributes) : base(geometry)
-        {
+            Geometry25832 = (LineString)geometry25832.Copy();
             foreach (var attribute in attributes)
             {
                 this[attribute.Key] = attribute.Value;
             }
-            this.OriginalGeometry = originalGeometry;
-            this.Elevations = new ElevationProfileCache(this, originalGeometry);
+            Elevations = new ElevationProfileCache(this, Geometry25832);
+        }
+        internal AnalysisFeature(
+            NetTopologySuite.Geometries.Geometry displayGeometry,
+            LineString geometry25832,
+            Dictionary<string, object> attributes) : base(displayGeometry)
+        {
+            Geometry25832 = geometry25832;
+            foreach (var attribute in attributes)
+            {
+                this[attribute.Key] = attribute.Value;
+            }
+            Elevations = new ElevationProfileCache(this, Geometry25832);
         }
         #endregion
 
         #region Spatial data storage
-        public OriginalGeometry OriginalGeometry { get; }
+        public LineString Geometry25832 { get; }
         internal ElevationProfileCache Elevations { get; }
         #endregion
 
@@ -73,6 +75,17 @@ namespace DimensioneringV2.GraphFeatures
                 .ToDictionary(
                     x => x.attr!.Property,
                     x => x.prop.Name
+                );
+
+        private static Dictionary<MapPropertyEnum, PropertyInfo>? _propertyInfoLookup;
+        private static Dictionary<MapPropertyEnum, PropertyInfo> PropertyInfoLookup =>
+            _propertyInfoLookup ??= typeof(AnalysisFeature)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Select(prop => (prop, attr: prop.GetCustomAttribute<MapPropertyAttribute>()))
+                .Where(x => x.attr != null)
+                .ToDictionary(
+                    x => x.attr!.Property,
+                    x => x.prop
                 );
         public object? this[MapPropertyEnum property]
         {
@@ -113,6 +126,18 @@ namespace DimensioneringV2.GraphFeatures
                 throw new KeyNotFoundException($"Property enum '{property}' not found in lookup.");
             return key;
         }
+
+        /// <summary>
+        /// Gets the display value for a property by invoking the property getter.
+        /// This ensures that any custom logic in the property getter is executed,
+        /// unlike direct attribute table access which bypasses property logic.
+        /// </summary>
+        public object? GetDisplayValue(MapPropertyEnum property)
+        {
+            if (!PropertyInfoLookup.TryGetValue(property, out var propInfo))
+                throw new KeyNotFoundException($"Property enum '{property}' not found in lookup.");
+            return propInfo.GetValue(this);
+        }
         #endregion
 
         #region Calculation properties
@@ -128,7 +153,7 @@ namespace DimensioneringV2.GraphFeatures
         /// <summary>
         /// Length of the segment
         /// </summary>
-        public double Length => OriginalGeometry.Length;
+        public double Length => Geometry25832.Length;
 
         /// <summary>
         /// Is the segment a service line, then returns 1, else 0
@@ -231,21 +256,21 @@ namespace DimensioneringV2.GraphFeatures
         /// <summary>
         /// Flow rate for supply
         /// </summary>
-        [MapPropertyAttribute(MapPropertyEnum.FlowSupply)]
-        public double FlowSupply
+        [MapPropertyAttribute(MapPropertyEnum.DimFlowSupply)]
+        public double DimFlowSupply
         {
-            get => GetAttributeValue<double>(MapPropertyEnum.FlowSupply);
-            set => SetAttributeValue(MapPropertyEnum.FlowSupply, value);
+            get => GetAttributeValue<double>(MapPropertyEnum.DimFlowSupply);
+            set => SetAttributeValue(MapPropertyEnum.DimFlowSupply, value);
         }
 
         /// <summary>
         /// Flow rate for return
         /// </summary>
-        [MapPropertyAttribute(MapPropertyEnum.FlowReturn)]
-        public double FlowReturn
+        [MapPropertyAttribute(MapPropertyEnum.DimFlowReturn)]
+        public double DimFlowReturn
         {
-            get => GetAttributeValue<double>(MapPropertyEnum.FlowReturn);
-            set => SetAttributeValue(MapPropertyEnum.FlowReturn, value);
+            get => GetAttributeValue<double>(MapPropertyEnum.DimFlowReturn);
+            set => SetAttributeValue(MapPropertyEnum.DimFlowReturn, value);
         }
 
         /// <summary>
@@ -254,7 +279,7 @@ namespace DimensioneringV2.GraphFeatures
         [MapPropertyAttribute(MapPropertyEnum.PressureGradientSupply)]
         public double PressureGradientSupply
         {
-            get => GetAttributeValue<double>(MapPropertyEnum.PressureGradientSupply) * pct;            
+            get => GetAttributeValue<double>(MapPropertyEnum.PressureGradientSupply) * pct;
             set => SetAttributeValue(MapPropertyEnum.PressureGradientSupply, value);
         }
         private double pct => 1.0 + (double)HydraulicSettingsService.Instance.Settings.ProcentTillægTilTryktab / 100;
@@ -377,6 +402,54 @@ namespace DimensioneringV2.GraphFeatures
             set => SetAttributeValue(MapPropertyEnum.ManualDim, value);
         }
 
+        /// <summary>
+        /// The temperature delta at the client connection for heating.
+        /// </summary>
+        [MapProperty(MapPropertyEnum.TempDeltaVarme)]
+        public double TempDeltaVarme
+        {
+            get => GetAttributeValue<double>(MapPropertyEnum.TempDeltaVarme);
+            //set => SetAttributeValue(MapPropertyEnum.TempDelta, value);
+        }
+
+        /// <summary>
+        /// The temperature delta at the client connection for water.
+        /// </summary>
+        [MapProperty(MapPropertyEnum.TempDeltaBV)]
+        public double TempDeltaBV
+        {
+            get => GetAttributeValue<double>(MapPropertyEnum.TempDeltaBV);
+            //set => SetAttributeValue(MapPropertyEnum.TempDelta, value);
+        }
+
+        /// <summary>
+        /// Anvendelseskode for the feature.
+        /// </summary>
+        [MapProperty(MapPropertyEnum.BygningsAnvendelseNyKode)]
+        public string BygningsAnvendelseNyKode
+        {
+            get => GetAttributeValue<string>(MapPropertyEnum.BygningsAnvendelseNyKode);
+        }
+
+        /// <summary>
+        /// Nyttetimer value from the current configuration based on AnvendelsesKode.
+        /// Only valid for Stikledning segments. Returns 0 for Fordelingsledning.
+        /// This property dynamically reads from NyttetimerService so changes in settings
+        /// are reflected when the map is refreshed.
+        /// </summary>
+        [MapProperty(MapPropertyEnum.Nyttetimer)]
+        public int Nyttetimer
+        {
+            get
+            {
+                if (SegmentType != SegmentType.Stikledning) return 0;
+
+                var kode = BygningsAnvendelseNyKode;
+                var defaultValue = HydraulicSettingsService.Instance.Settings.BygningsnyttetimerDefault;
+                return NyttetimerService.Instance.GetNyttetimer(kode, defaultValue);
+            }
+        }
+
         public void ResetHydraulicResults()
         {
             NumberOfBuildingsSupplied = 0;
@@ -385,8 +458,8 @@ namespace DimensioneringV2.GraphFeatures
             Dim = Dim.NA;
             ReynoldsSupply = 0;
             ReynoldsReturn = 0;
-            FlowSupply = 0;
-            FlowReturn = 0;
+            DimFlowSupply = 0;
+            DimFlowReturn = 0;
             PressureGradientSupply = 0;
             PressureGradientReturn = 0;
             VelocitySupply = 0;
@@ -396,7 +469,6 @@ namespace DimensioneringV2.GraphFeatures
             PressureLossAtClientSupply = 0;
             PressureLossAtClientReturn = 0;
             DifferentialPressureAtClient = 0;
-            //SubGraphId = 0;
         }
         #region ICloneable Implementation
         public object Clone()
@@ -415,7 +487,7 @@ namespace DimensioneringV2.GraphFeatures
         {
             "BoundingBox",
             "Attributes",
-            "OriginalGeometry",
+            "Geometry25832",
             "Elevations"
         };
         IEnumerable<PropertyItem> IInfoForFeature.PropertiesToDataGrid()
@@ -439,6 +511,7 @@ namespace DimensioneringV2.GraphFeatures
         /// <summary>
         /// The address of the feature.
         /// </summary>
+        [MapProperty(MapPropertyEnum.Address)]
         public string Adresse
         {
             get
@@ -450,6 +523,16 @@ namespace DimensioneringV2.GraphFeatures
                 return addresse;
             }
         }
+
+        /// <summary>
+        /// The anvendelse text of the feature.
+        /// </summary>
+        [MapProperty(MapPropertyEnum.BygningsAnvendelseNyTekst)]
+        public string BygningsAnvendelseNyTekst
+        {
+            get => GetAttributeValue<string>(MapPropertyEnum.BygningsAnvendelseNyTekst);
+        }
+
         /// <summary>
         /// The pressure loss in this pipe segment.
         /// </summary>

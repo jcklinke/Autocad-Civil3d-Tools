@@ -1,38 +1,30 @@
 ﻿using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
-using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 
 using Dreambuild.AutoCAD;
 
 using IntersectUtilities;
-using IntersectUtilities.DynamicBlocks;
 using IntersectUtilities.UtilsCommon;
 
+using Microsoft.Win32;
+
 using NetTopologySuite.Features;
-using NetTopologySuite.Geometries;
 using NetTopologySuite.IO.Esri;
-using ProjNet.CoordinateSystems;
-using GeoAPI.Geometries;
 
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Data;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
-using Microsoft.Win32;
 
-using static IntersectUtilities.ComponentSchedule;
-using static IntersectUtilities.PipeScheduleV2.PipeScheduleV2;
 using static IntersectUtilities.UtilsCommon.Utils;
 using static IntersectUtilities.UtilsCommon.UtilsDataTables;
+using IntersectUtilities.UtilsCommon.DataManager.CsvData;
 
 using Application = Autodesk.AutoCAD.ApplicationServices.Application;
 using Log = ExportShapeFiles.ExportShapeFiles.SimpleLogger;
-using NetTopologySuite.IO.Esri.Shapefiles.Writers;
 
 namespace ExportShapeFiles
 {
@@ -45,6 +37,7 @@ namespace ExportShapeFiles
             doc.Editor.WriteMessage("\nExport Fjernvarme to shapefiles (original): EXPORTSHAPEFILES");
             doc.Editor.WriteMessage("\nExport Fjernvarme to shapefiles for many drawings (original): EXPORTSHAPEFILESBATCH");
             doc.Editor.WriteMessage("\nExport Fjernvarme to shapefiles (flotte polygoner): EXPORTFJVTOSHAPE\n");
+            doc.Editor.WriteMessage("\nExport BBR to shapefiles (punkter): EXPORTBBRTOSHAPE\n");
 
 #if DEBUG
             AppDomain.CurrentDomain.AssemblyResolve += new ResolveEventHandler(EventHandlers.Debug_AssemblyResolve);
@@ -145,9 +138,7 @@ namespace ExportShapeFiles
                     #endregion
 
                     #region Exporting BRs
-                    var dt = CsvData.FK;
-
-                    HashSet<BlockReference> brs = localDb.GetFjvBlocks(tx, dt, false);
+                    HashSet<BlockReference> brs = localDb.GetFjvBlocks(tx, discardWelds: false);
 
                     Log.log($"{brs.Count} br(s) found for export.");
 
@@ -262,14 +253,12 @@ namespace ExportShapeFiles
                         {
                             //sw.Write(ProjNet.CoordinateSystems.ProjectedCoordinateSystem.WGS84_UTM(32, true));
                             sw.Write(@"PROJCS[""ETRS_1989_UTM_Zone_32N"",GEOGCS[""GCS_ETRS_1989"",DATUM[""D_ETRS_1989"",SPHEROID[""GRS_1980"",6378137.0,298.257222101]],PRIMEM[""Greenwich"",0.0],UNIT[""Degree"",0.0174532925199433]],PROJECTION[""Transverse_Mercator""],PARAMETER[""False_Easting"",500000.0],PARAMETER[""False_Northing"",0.0],PARAMETER[""Central_Meridian"",9.0],PARAMETER[""Scale_Factor"",0.9996],PARAMETER[""Latitude_Of_Origin"",0.0],UNIT[""Meter"",1.0]]");
-                        } 
+                        }
                     }
                     #endregion
 
                     #region Exporting BRs
-                    var dt = CsvData.FK;
-
-                    HashSet<BlockReference> brs = localDb.GetFjvBlocks(tx, dt);
+                    HashSet<BlockReference> brs = localDb.GetFjvBlocks(tx);
 
                     Log.log($"{brs.Count} br(s) found for export.");
 
@@ -288,7 +277,7 @@ namespace ExportShapeFiles
                         {
                             //sw.Write(ProjNet.CoordinateSystems.ProjectedCoordinateSystem.WGS84_UTM(32, true));
                             sw.Write(@"PROJCS[""ETRS_1989_UTM_Zone_32N"",GEOGCS[""GCS_ETRS_1989"",DATUM[""D_ETRS_1989"",SPHEROID[""GRS_1980"",6378137.0,298.257222101]],PRIMEM[""Greenwich"",0.0],UNIT[""Degree"",0.0174532925199433]],PROJECTION[""Transverse_Mercator""],PARAMETER[""False_Easting"",500000.0],PARAMETER[""False_Northing"",0.0],PARAMETER[""Central_Meridian"",9.0],PARAMETER[""Scale_Factor"",0.9996],PARAMETER[""Latitude_Of_Origin"",0.0],UNIT[""Meter"",1.0]]");
-                        } 
+                        }
                     }
                     #endregion
                 }
@@ -349,7 +338,7 @@ namespace ExportShapeFiles
                     Log.log($"Exporting to {exportDir}.");
 
                     #region Exporting
-                    var dt = ExportShapeFilesEasyGis.Utils.GetFjvBlocksDt();
+                    var fk = ExportShapeFilesEasyGis.Utils.GetFjvComponents();
                     HashSet<Entity> ents = localDb.GetFjvEntities(tx, true, true, true);
 
                     Log.log($"{ents.Count} entit(y/ies) found for export.");
@@ -535,7 +524,7 @@ namespace ExportShapeFiles
 
             Log.log($"-~*~- Starting new BATCH export -~*~-");
 
-            System.Data.DataTable dt = CsvReader.ReadCsvToDataTable(@"X:\AutoCAD DRI - 01 Civil 3D\Stier.csv", "Stier");
+            var stier = Csv.Stier;
 
             string exportDir;
             OpenFolderDialog fsd = new OpenFolderDialog()
@@ -550,31 +539,30 @@ namespace ExportShapeFiles
             }
             else return;
 
-            if (dt == null)
+            if (stier.RowCount == 0)
             {
-                Log.log($"Datatable creation failed (null)! Aborting...");
-                return;
-            }
-            else if (dt.Rows.Count == 0)
-            {
-                Log.log($"Datatable creation failed (0 rows)! Aborting...");
+                Log.log($"Stier CSV has 0 rows! Aborting...");
                 return;
             }
             else
             {
-                Log.log($"Datatable created with {dt.Rows.Count} record(s).");
+                Log.log($"Stier CSV loaded with {stier.RowCount} record(s).");
             }
 
-            var projectList = dt.AsEnumerable()
-                .Select(x => x["PrjId"].ToString()).Distinct().OrderByAlphaNumeric(x => x);
+            var projectList = stier.Rows
+                .Select(row => Stier.Col(row, Stier.Columns.PrjId))
+                .Where(s => !string.IsNullOrEmpty(s))
+                .Distinct()
+                .OrderByAlphaNumeric(x => x);
 
             string projectName =
                 Interaction.GetKeywords("Vælg projekt til eksport: ", projectList.ToArray());
             if (projectName.IsNoE()) return;
 
-            List<string> list = dt.AsEnumerable()
-                .Where(x => x["PrjId"].ToString() == projectName)
-                .Select(x => x["Fremtid"].ToString()).ToList();
+            List<string> list = stier.Rows
+                .Where(row => Stier.Col(row, Stier.Columns.PrjId) == projectName)
+                .Select(row => Stier.Col(row, Stier.Columns.Fremtid))
+                .ToList();
 
             Log.log($"Phases found: {list.Count}.");
 
@@ -605,7 +593,9 @@ namespace ExportShapeFiles
                 Log.log($"Processing " + fileName);
                 count++;
 
-                string phaseNumber = ReadStringParameterFromDataTable(fileName, dt, "Etape", 5);
+                string phaseNumber = stier.Rows
+                    .FirstOrDefault(row => Stier.Col(row, Stier.Columns.Fremtid) == fileName)
+                    is string[] matchedRow ? Stier.Col(matchedRow, Stier.Columns.Etape) : "";
 
                 using (Database extDb = new Database(false, true))
                 {
@@ -816,6 +806,69 @@ namespace ExportShapeFiles
         //} 
         #endregion
 
+        /// <command>EXPORTBBRTOSHAPE</command>
+        /// <summary>
+        /// Exports all BBR blocks from current drawing to shape file.
+        /// </summary>
+        /// <category>GIS</category>
+        [CommandMethod("EXPORTBBRTOSHAPE")]
+        public void exportbbrtoshape()
+        {
+            DocumentCollection docCol = Application.DocumentManager;
+            Database localDb = docCol.MdiActiveDocument.Database;
+            Document doc = docCol.MdiActiveDocument;
+
+            PropertySetManager.UpdatePropertySetDefinition(localDb, PSetDefs.DefinedSets.BBR);
+
+            string dbFilename = localDb.OriginalFileName;
+            string path = Path.Combine(Path.GetDirectoryName(dbFilename), "SHP");
+            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+            string shpFileName = Path.Combine(path, "BBR.shp");
+            string prjFileName = Path.Combine(path, "BBR.prj");
+
+            Log.LogFileName = Path.Combine(path, "export.log");
+            Log.EchoToEditor = true;
+
+            using var tx = localDb.TransactionManager.StartTransaction();
+
+            try
+            {
+                Log.log($"Exporting to {shpFileName}.");
+
+                #region Exporting BRs
+                HashSet<BlockReference> brs =
+                    localDb.HashSetOfTypeWithPs<BlockReference>(
+                    tx, PSetDefs.DefinedSets.BBR);
+
+                Log.log($"{brs.Count} br(s) found for export.");
+
+                if (brs.Count > 0)
+                {
+                    var features = brs.Select(
+                        x => BlockRefWithPsToShapePointConverter.Convert(
+                            x, [PSetDefs.DefinedSets.BBR]));
+
+                    Shapefile.WriteAllFeatures(features, shpFileName);
+
+                    //Create the projection file
+                    using (var sw = new StreamWriter(prjFileName))
+                    {
+                        //sw.Write(ProjNet.CoordinateSystems.ProjectedCoordinateSystem.WGS84_UTM(32, true));
+                        sw.Write(@"PROJCS[""ETRS_1989_UTM_Zone_32N"",GEOGCS[""GCS_ETRS_1989"",DATUM[""D_ETRS_1989"",SPHEROID[""GRS_1980"",6378137.0,298.257222101]],PRIMEM[""Greenwich"",0.0],UNIT[""Degree"",0.0174532925199433]],PROJECTION[""Transverse_Mercator""],PARAMETER[""False_Easting"",500000.0],PARAMETER[""False_Northing"",0.0],PARAMETER[""Central_Meridian"",9.0],PARAMETER[""Scale_Factor"",0.9996],PARAMETER[""Latitude_Of_Origin"",0.0],UNIT[""Meter"",1.0]]");
+                    }
+                }
+                #endregion
+            }
+            catch (System.Exception ex)
+            {
+                tx.Abort();
+                Log.log($"EXCEPTION!!!: {ex.ToString()}. Aborting export of current file!");
+                throw new System.Exception(ex.ToString());
+                //return;
+            }
+            tx.Abort();
+        }
+
         public static class SimpleLogger
         {
             public static bool EchoToEditor { get; set; } = true;
@@ -872,4 +925,3 @@ namespace ExportShapeFiles
         }
     }
 }
-

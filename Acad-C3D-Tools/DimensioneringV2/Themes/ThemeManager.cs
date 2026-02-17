@@ -49,6 +49,22 @@ namespace DimensioneringV2.Themes
             _categoryThemeBuilders[MapPropertyEnum.Pipe] =
                 () => BuildCategoryTheme(
                     MapPropertyEnum.Pipe, f => f.Dim.DimName, ["NA 000"]);
+
+            _categoryThemeBuilders[MapPropertyEnum.Address] =
+                () => BuildCategoryTheme(
+                    MapPropertyEnum.Address, f => f.Adresse, [""]);
+
+            _categoryThemeBuilders[MapPropertyEnum.BygningsAnvendelseNyTekst] =
+                () => BuildCategoryTheme(
+                    MapPropertyEnum.BygningsAnvendelseNyTekst, f => f.BygningsAnvendelseNyTekst, [""]);
+
+            _categoryThemeBuilders[MapPropertyEnum.BygningsAnvendelseNyKode] =
+                () => BuildCategoryTheme(
+                    MapPropertyEnum.BygningsAnvendelseNyKode, f => f.BygningsAnvendelseNyKode, [""]);
+
+            _categoryThemeBuilders[MapPropertyEnum.Nyttetimer] =
+                () => BuildCategoryTheme(
+                    MapPropertyEnum.Nyttetimer, f => f.Nyttetimer, [0]);
         }
 
         public void SetTheme(MapPropertyEnum property, bool labelsEnabled = false)
@@ -57,8 +73,8 @@ namespace DimensioneringV2.Themes
 
             switch (property)
             {
-                case MapPropertyEnum.FlowSupply:
-                case MapPropertyEnum.FlowReturn:
+                case MapPropertyEnum.DimFlowSupply:
+                case MapPropertyEnum.DimFlowReturn:
                 case MapPropertyEnum.PressureGradientSupply:
                 case MapPropertyEnum.PressureGradientReturn:
                 case MapPropertyEnum.VelocitySupply:
@@ -67,6 +83,8 @@ namespace DimensioneringV2.Themes
                 case MapPropertyEnum.HeatingDemand:
                 case MapPropertyEnum.Bygninger:
                 case MapPropertyEnum.Units:
+                case MapPropertyEnum.TempDeltaVarme:
+                case MapPropertyEnum.TempDeltaBV:
                     theme = BuildGradientTheme(property);
                     break;
 
@@ -75,6 +93,10 @@ namespace DimensioneringV2.Themes
                 case MapPropertyEnum.ManualDim:
                 case MapPropertyEnum.Bridge:
                 case MapPropertyEnum.Pipe:
+                case MapPropertyEnum.Address:
+                case MapPropertyEnum.BygningsAnvendelseNyTekst:
+                case MapPropertyEnum.BygningsAnvendelseNyKode:
+                case MapPropertyEnum.Nyttetimer:
                     theme = _categoryThemeBuilders[property]();
                     break;
 
@@ -104,9 +126,9 @@ namespace DimensioneringV2.Themes
 
         private IStyle BuildGradientTheme(MapPropertyEnum prop)
         {
-            // Make sure each feature has feature[key] set to numeric
+            // Use GetDisplayValue to invoke property getter with any custom logic
             var values = _allFeatures
-                .Select(f => Convert.ToDouble(f[prop]))
+                .Select(f => Convert.ToDouble(f.GetDisplayValue(prop)))
                 .Where(v => !double.IsNaN(v))
                 .ToList();
 
@@ -119,7 +141,7 @@ namespace DimensioneringV2.Themes
             double max = query.Count() > 0 ? values.Max() : 1;
 
             var theme = new GradientWithDefaultTheme(
-                columnName: AnalysisFeature.GetAttributeName(prop),
+                property: prop,
                 minValue: min,
                 maxValue: max,
                 minStyle: new VectorStyle { Line = new Pen(Color.Blue, 2) },

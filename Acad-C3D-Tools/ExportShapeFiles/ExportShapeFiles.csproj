@@ -95,9 +95,6 @@
 		</Reference>
 	</ItemGroup>
 	<ItemGroup>
-		<Compile Include="..\IntersectUtilities\CsvReader.cs">
-			<Link>CsvReader.cs</Link>
-		</Compile>
 		<Compile Include="..\IntersectUtilities\MoreLinq\MoreLinq.cs">
 			<Link>MoreLinq.cs</Link>
 		</Compile>
@@ -111,6 +108,7 @@
 	<PropertyGroup>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>
+		<AssemblyName>ExportShapeFiles</AssemblyName>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="GeoAPI.CoordinateSystems" Version="1.7.5" />

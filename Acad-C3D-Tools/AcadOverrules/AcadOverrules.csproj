@@ -81,6 +81,9 @@
 			<HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AdWindows.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
+		<Reference Include="AecArchMgd">
+		  <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\ACA\AecArchMgd.dll</HintPath>
+		</Reference>
 		<Reference Include="AecBaseMgd">
 			<HintPath>C:\Program Files\Autodesk\AutoCAD 2025\ACA\AecBaseMgd.dll</HintPath>
 			<Private>False</Private>
@@ -103,9 +106,6 @@
 		</Reference>
 	</ItemGroup>
 	<ItemGroup>
-		<Compile Include="..\IntersectUtilities\CsvReader.cs">
-			<Link>CsvReader.cs</Link>
-		</Compile>
 		<Compile Include="..\IntersectUtilities\MoreLinq\MoreLinq.cs">
 			<Link>MoreLinq.cs</Link>
 		</Compile>
@@ -128,6 +128,9 @@
 		<PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.0.0" />
 		<PackageReference Include="System.Text.Encodings.Web" Version="8.0.0" />
 		<PackageReference Include="System.Text.Json" Version="8.0.5" />
+	</ItemGroup>
+	<ItemGroup>
+	  <Folder Include="Docs\" />
 	</ItemGroup>
 	<Import Project="..\UtilitiesCommonSHARED\UtilitiesCommonSHARED.projitems" Label="Shared" />
 	<Import Project="..\AutoCADCommandsSHARED\AutoCADCommandsSHARED.projitems" Label="Shared" />

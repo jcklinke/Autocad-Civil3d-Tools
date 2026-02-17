@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using IntersectUtilities.UtilsCommon.Enums;
 using static IntersectUtilities.UtilsCommon.Utils;
 using IntersectUtilities.NTS;
+using IntersectUtilities.PlanDetailing;
 
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -79,7 +80,8 @@ namespace DimensioneringV2.AutoCAD
 
                     if (!ltt.Has(lineTypeName))
                     {
-                        createcomplexlinetypemethod(lineTypeName, lineTypeText, "Standard", dimDb);
+                        IntersectUtilities.PlanDetailing.LineTypes.LineTypes.createltmethod(
+                            lineTypeName, lineTypeText, "Standard", dimDb);
                     }
                     #endregion
 
@@ -117,9 +119,9 @@ namespace DimensioneringV2.AutoCAD
             {
                 case NorsynHydraulicCalc.PipeType.Stål:
                     return PipeSystemEnum.Stål;
-                case NorsynHydraulicCalc.PipeType.PertFlextra:
+                case NorsynHydraulicCalc.PipeType.PertFlextraFL:
                     return PipeSystemEnum.PertFlextra;
-                case NorsynHydraulicCalc.PipeType.AluPEX:
+                case NorsynHydraulicCalc.PipeType.AluPEXSL:
                     return PipeSystemEnum.AluPex;
                 case NorsynHydraulicCalc.PipeType.Kobber:
                     return PipeSystemEnum.Kobberflex;

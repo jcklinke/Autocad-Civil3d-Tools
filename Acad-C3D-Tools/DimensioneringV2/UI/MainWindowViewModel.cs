@@ -1,10 +1,11 @@
-﻿using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.Geometry;
 
 using BruTile.Cache;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using DimensioneringV2.AutoCAD;
 using DimensioneringV2.GraphFeatures;
 using DimensioneringV2.Legend;
 using DimensioneringV2.MapCommands;
@@ -21,6 +22,8 @@ using Mapsui.Extensions;
 using Mapsui.Layers;
 using Mapsui.Providers;
 using Mapsui.UI.Wpf;
+
+using NorsynHydraulicCalc;
 
 using ProjNet.CoordinateSystems;
 using ProjNet.CoordinateSystems.Transformations;
@@ -45,6 +48,107 @@ namespace DimensioneringV2.UI
             _dataService = DataService.Instance;
             _dataService.DataLoaded += OnDataLoadedFirstTime;
             _dataService.CalculationsFinishedEvent += OnCalculationsCompleted;
+
+            BBRLayerService.Instance.BBRDataLoaded += OnBBRDataLoaded;
+
+            //HydraulicSettingsService.Instance.Settings.PropertyChanged += OnSettingsPropertyChanged;
+        }
+
+        private void OnBBRDataLoaded(object? sender, EventArgs e)
+        {
+            RefreshBBRLayers();
+        }
+
+        private void OnSettingsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != null && e.PropertyName.StartsWith("Filter"))
+            {
+                if (BBRLayerService.Instance.ActiveFeatures.Any() || BBRLayerService.Instance.InactiveFeatures.Any())
+                {
+                    BBRLayerService.Instance.RefreshFiltering();
+                }
+            }
+        }
+
+        private void RefreshBBRLayers()
+        {
+            Utils.prtDbg("RefreshBBRLayers called");
+            if (Mymap == null)
+            {
+                Utils.prtDbg("RefreshBBRLayers: Mymap is null, returning");
+                return;
+            }
+
+            var bbrService = BBRLayerService.Instance;
+            Utils.prtDbg($"RefreshBBRLayers: Active={bbrService.ActiveFeatures.Count()}, Inactive={bbrService.InactiveFeatures.Count()}");
+
+            var activeLayer = Mymap.Layers.FirstOrDefault(x => x.Name == "BBR_Active");
+            var inactiveLayer = Mymap.Layers.FirstOrDefault(x => x.Name == "BBR_Inactive");
+
+            if (activeLayer != null) Mymap.Layers.Remove(activeLayer);
+            if (inactiveLayer != null) Mymap.Layers.Remove(inactiveLayer);
+
+            if (!bbrService.ActiveFeatures.Any() && !bbrService.InactiveFeatures.Any())
+            {
+                Utils.prtDbg("RefreshBBRLayers: No features, returning");
+                return;
+            }
+
+            try
+            {
+                var activeFeatures = bbrService.ActiveFeatures.ToList();
+                var inactiveFeatures = bbrService.InactiveFeatures.ToList();
+
+                Utils.prtDbg($"RefreshBBRLayers: Materialized - Active={activeFeatures.Count}, Inactive={inactiveFeatures.Count}");
+
+                if (activeFeatures.Count > 0)
+                {
+                    var first = activeFeatures[0];
+                    var geom = first.Geometry;
+                    Utils.prtDbg($"RefreshBBRLayers: First feature geometry: {geom?.GetType().Name ?? "null"}, Coords: {geom?.Coordinate?.X ?? 0}, {geom?.Coordinate?.Y ?? 0}");
+                    Utils.prtDbg($"RefreshBBRLayers: Original coords: {first.OriginalX}, {first.OriginalY}");
+                }
+
+                if (activeFeatures.Count == 0 && inactiveFeatures.Count == 0)
+                {
+                    Utils.prtDbg("RefreshBBRLayers: No features after materialization");
+                    return;
+                }
+
+                var inactiveProvider = new MemoryProvider(inactiveFeatures.Cast<IFeature>())
+                {
+                    CRS = "EPSG:3857"
+                };
+                Func<double> getResolution = () => Mymap.Navigator.Viewport.Resolution;
+
+                var newInactiveLayer = new Layer
+                {
+                    DataSource = inactiveProvider,
+                    Name = "BBR_Inactive",
+                    Style = new Themes.BBRTheme(isActive: false, getResolution)
+                };
+
+                var activeProvider = new MemoryProvider(activeFeatures.Cast<IFeature>())
+                {
+                    CRS = "EPSG:3857"
+                };
+                var newActiveLayer = new Layer
+                {
+                    DataSource = activeProvider,
+                    Name = "BBR_Active",
+                    IsMapInfoLayer = false,
+                    Style = new Themes.BBRTheme(isActive: true, getResolution)
+                };
+
+                Mymap.Layers.Add(newInactiveLayer);
+                Mymap.Layers.Add(newActiveLayer);
+
+                Utils.prtDbg($"RefreshBBRLayers: Done, layer count now: {Mymap.Layers.Count}");
+            }
+            catch (System.Exception ex)
+            {
+                Utils.prtDbg($"RefreshBBRLayers ERROR: {ex.Message}\n{ex.StackTrace}");
+            }
         }
 
         private IEnumerable<MapPropertyWrapper> GetMapProperties(Type type)
@@ -75,11 +179,12 @@ namespace DimensioneringV2.UI
         public RelayCommand Dim2ImportDimsCommand => new RelayCommand(() => new Dim2ImportDims().Execute());
         public RelayCommand SaveResultCommand => new RelayCommand(() => new SaveResult().Execute());
         public RelayCommand LoadResultCommand => new RelayCommand(() => new LoadResult().Execute());
-        public RelayCommand WriteToDwgCommand => new RelayCommand(() => new Write2Dwg().Execute());
+        public RelayCommand WriteToDwgCommand => new RelayCommand(() => new MapCommands.Write2Dwg().Execute());
         public RelayCommand WriteStikOgVejklasserCommand => new RelayCommand(() => new WriteStikOgVejklasser().Execute());
         public AsyncRelayCommand TestElevationsCommand => new AsyncRelayCommand(new TestElevations().Execute);
         public AsyncRelayCommand TrykprofilCommand => new(async () => { await new Trykprofil().Execute(SelectedFeature); });
         public AsyncRelayCommand SampleGridCommand => new AsyncRelayCommand(new SampleGrid().Execute);
+        public AsyncRelayCommand TestCacheCommand => new AsyncRelayCommand(new TestCache().Execute);
         #endregion
 
         #region ZoomToExtents
@@ -175,6 +280,8 @@ namespace DimensioneringV2.UI
         {
             if (Mymap == null) return;
 
+            MapSuiSvgIconCache.Initialize();
+
             SelectedMapPropertyWrapper = new MapPropertyWrapper(MapPropertyEnum.Default, "Default");
             _themeManager.SetTheme(MapPropertyEnum.Default);
 
@@ -226,6 +333,8 @@ namespace DimensioneringV2.UI
             //Add the features layer
             Mymap.Layers.Add(layer);
 
+            //RefreshBBRLayers();
+
             Mymap.Navigator.ZoomToBox(extent);
 
             //Legends
@@ -264,6 +373,8 @@ namespace DimensioneringV2.UI
             }
 
             Mymap.Layers.Add(layer);
+
+            //RefreshBBRLayers();
 
             if (_legendWidget != null)
             {
@@ -416,7 +527,32 @@ namespace DimensioneringV2.UI
             _angivDim = null;
             SelectedMapPropertyWrapper = _prevSelectedProperty;
 
-            new HydraulicCalculationsService().CalculateGraphs(_dataService.Graphs);
+            var graphs = DataService.Instance.Graphs;
+            HydraulicCalc hc = new HydraulicCalc(
+                HydraulicSettingsService.Instance.Settings,
+                new LoggerFile());
+
+            foreach (var ograph in graphs)
+            {
+                var graph = ograph.CopyToBF();
+
+                foreach (var edge in graph.Edges)
+                {
+                    switch (edge.SegmentType)
+                    {
+                        case SegmentType.Fordelingsledning:
+                            var res1 = hc.CalculateDistributionSegment(edge);
+                            edge.ApplyResult(res1);
+                            break;
+                        case SegmentType.Stikledning:
+                            var res2 = hc.CalculateClientSegment(edge);
+                            edge.ApplyResult(res2);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
 
             foreach (var graph in DataService.Instance.Graphs)
                 PressureAnalysisService.CalculateDifferentialLossAtClient(graph);
@@ -510,7 +646,32 @@ namespace DimensioneringV2.UI
             _resetDim = null;
             SelectedMapPropertyWrapper = _prevSelectedProperty;
 
-            new HydraulicCalculationsService().CalculateGraphs(_dataService.Graphs);
+            var graphs = DataService.Instance.Graphs;
+            HydraulicCalc hc = new HydraulicCalc(
+                HydraulicSettingsService.Instance.Settings,
+                new LoggerFile());
+
+            foreach (var ograph in graphs)
+            {
+                var graph = ograph.CopyToBF();
+
+                foreach (var edge in graph.Edges)
+                {
+                    switch (edge.SegmentType)
+                    {
+                        case SegmentType.Fordelingsledning:
+                            var res1 = hc.CalculateDistributionSegment(edge);
+                            edge.ApplyResult(res1);
+                            break;
+                        case SegmentType.Stikledning:
+                            var res2 = hc.CalculateClientSegment(edge);
+                            edge.ApplyResult(res2);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
 
             foreach (var graph in DataService.Instance.Graphs)
                 PressureAnalysisService.CalculateDifferentialLossAtClient(graph);

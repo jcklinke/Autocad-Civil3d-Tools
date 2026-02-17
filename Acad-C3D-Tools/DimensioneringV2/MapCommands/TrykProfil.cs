@@ -91,8 +91,8 @@ namespace DimensioneringV2.MapCommands
 
                     //Precise pressures for mVS
                     var ld = LookupDataFactory.GetLookupData(settings.MedieType);
-                    int tf = settings.TempFremFL;
-                    int tr = settings.TempReturFL;
+                    double tf = settings.TempFrem;
+                    double tr = settings.TempFrem - settings.AfkølingVarme;
                     var rhof = ld.rho(tf);
                     var rhor = ld.rho(tr);
 

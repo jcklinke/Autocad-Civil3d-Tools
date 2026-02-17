@@ -4,8 +4,8 @@ using System.Globalization;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using IntersectUtilities.UtilsCommon;
+using IntersectUtilities.UtilsCommon.DataManager.CsvData;
 using static IntersectUtilities.UtilsCommon.UtilsDataTables;
-using static IntersectUtilities.CsvReader;
 
 namespace IntersectUtilities.Dimensionering.ImportFraBBR
 {
@@ -121,8 +121,7 @@ namespace IntersectUtilities.Dimensionering.ImportFraBBR
             } }
         public string Type
         {
-            get => ReadStringParameterFromDataTable(InstallationOgBrændsel,
-                CsvData.InstOgBrændsel, "Type", 0);
+            get => Csv.InstOgBr.Type(InstallationOgBrændsel) ?? "";
         }
     }
 

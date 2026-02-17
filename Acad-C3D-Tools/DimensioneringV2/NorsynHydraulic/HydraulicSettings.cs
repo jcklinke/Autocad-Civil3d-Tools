@@ -1,25 +1,90 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+
+using DimensioneringV2.Services;
 
 using NorsynHydraulicCalc;
+using NorsynHydraulicCalc.Pipes;
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
-public partial class HydraulicSettings : ObservableObject, IHydraulicSettings
+public partial class HydraulicSettings : ObservableObject, IVersionedSettings, IHydraulicSettings
 {
-    // General
+    #region PipeTypes Access
+    private PipeTypes? _pipeTypes;
+    
+    /// <summary>
+    /// Gets a PipeTypes instance for accessing pipe information.
+    /// Created lazily using this settings instance.
+    /// </summary>
+    public PipeTypes GetPipeTypes()
+    {
+        return _pipeTypes ??= new PipeTypes(this);
+    }
+    #endregion
+
+    #region Versioning
+    /// <summary>
+    /// Current version of the HydraulicSettings schema.
+    /// </summary>
+    public const int CurrentVersion = 2;
+
+    /// <summary>
+    /// Version of this settings instance. Used for migration.
+    /// Legacy files without this property are treated as version 1.
+    /// </summary>
+    [ObservableProperty]
+    private int version = CurrentVersion;
+    #endregion
+
+    #region General Settings
     [ObservableProperty]
     private MediumTypeEnum medieType = MediumTypeEnum.Water;
 
     [ObservableProperty]
-    private int hotWaterReturnTemp = 75;
+    private double afkølingBrugsvand = 35;
+
+    [ObservableProperty]
+    private bool useBrugsvandsprioritering = false;
 
     [ObservableProperty]
     private double factorTillægForOpvarmningUdenBrugsvandsprioritering = 0.6;
 
     [ObservableProperty]
-    private double minDifferentialPressureOverHovedHaner = 0.5;
+    private double tempFrem = 110;
 
+    [ObservableProperty]
+    private double afkølingVarme = 35;
+
+    [ObservableProperty]
+    private double factorVarmtVandsTillæg = 1.0;
+
+    private double? previousFactorValue = null;
+
+    partial void OnUseBrugsvandsprioriteringChanged(bool value)
+    {
+        if (value)
+        {
+            // Store the current value before setting to 0.0
+            if (FactorTillægForOpvarmningUdenBrugsvandsprioritering != 0.0)
+            {
+                previousFactorValue = FactorTillægForOpvarmningUdenBrugsvandsprioritering;
+            }
+            FactorTillægForOpvarmningUdenBrugsvandsprioritering = 0.0;
+        }
+        else
+        {
+            // Restore the previous value, or use default 0.6 if none was stored
+            FactorTillægForOpvarmningUdenBrugsvandsprioritering = previousFactorValue ?? 0.6;
+        }
+    }
+
+    [ObservableProperty]
+    private double minDifferentialPressureOverHovedHaner = 0.5;
+    #endregion
+
+    #region Roughness Settings
     [ObservableProperty]
     private double ruhedSteel = 0.1;
 
@@ -36,13 +101,15 @@ public partial class HydraulicSettings : ObservableObject, IHydraulicSettings
     private double ruhedPe = 0.01;
 
     [ObservableProperty]
+    private double ruhedAquaTherm11 = 0.01;
+    #endregion
+
+    #region Calculation Settings
+    [ObservableProperty]
     private int procentTillægTilTryktab = 0;
 
     [ObservableProperty]
     private double tillægTilHoldetrykMVS = 13;
-
-    [ObservableProperty]
-    private int numberOfGSLUToEnd = 300;
 
     [ObservableProperty]
     private int timeToSteinerTreeEnumeration = 20; // in seconds
@@ -58,81 +125,188 @@ public partial class HydraulicSettings : ObservableObject, IHydraulicSettings
 
     [ObservableProperty]
     private int cachePrecision = 4;
+    #endregion
 
-    // Supply Lines (FL)
+    #region Nyttetimer Settings
+    /// <summary>
+    /// System nyttetimer for 1 consumer calculation.
+    /// </summary>
     [ObservableProperty]
-    private int tempFremFL = 110;
+    private int systemnyttetimerVed1Forbruger = 2000;
 
+    /// <summary>
+    /// System nyttetimer for 50+ consumers calculation.
+    /// </summary>
     [ObservableProperty]
-    private int tempReturFL = 75;
+    private int systemnyttetimerVed50PlusForbrugere = 2800;
 
+    /// <summary>
+    /// Default building nyttetimer when anvendelseskode is unknown or not found.
+    /// </summary>
     [ObservableProperty]
-    private double factorVarmtVandsTillægFL = 1.0;
+    private int bygningsnyttetimerDefault = 2000;
+    #endregion
 
-    [ObservableProperty]
-    private int nyttetimerOneUserFL = 2000;
+    #region Pipe Type Configuration - Per Medium Storage
+    /// <summary>
+    /// Stores FL configurations per medium type.
+    /// This allows switching mediums without losing custom configurations.
+    /// </summary>
+    private Dictionary<MediumTypeEnum, PipeTypeConfiguration> pipeConfigsFL = new();
 
-    [ObservableProperty]
-    private int nyttetimer50PlusUsersFL = 2800;
+    /// <summary>
+    /// Stores SL configurations per medium type.
+    /// This allows switching mediums without losing custom configurations.
+    /// </summary>
+    private Dictionary<MediumTypeEnum, PipeTypeConfiguration> pipeConfigsSL = new();
 
-    [ObservableProperty]
-    private double acceptVelocity20_150FL = 1.5;
+    /// <summary>
+    /// Pipe type configuration for Fordelingsledninger (FL) for the current medium.
+    /// </summary>
+    public PipeTypeConfiguration PipeConfigFL
+    {
+        get
+        {
+            if (!pipeConfigsFL.TryGetValue(MedieType, out var config))
+            {
+                config = DefaultPipeConfigFactory.CreateDefaultFL(MedieType, GetPipeTypes());
+                pipeConfigsFL[MedieType] = config;
+            }
+            return config;
+        }
+        set
+        {
+            pipeConfigsFL[MedieType] = value;
+            OnPropertyChanged();
+        }
+    }
 
-    [ObservableProperty]
-    private double acceptVelocity200_300FL = 2.5;
+    /// <summary>
+    /// Pipe type configuration for Stikledninger (SL) for the current medium.
+    /// </summary>
+    public PipeTypeConfiguration PipeConfigSL
+    {
+        get
+        {
+            if (!pipeConfigsSL.TryGetValue(MedieType, out var config))
+            {
+                config = DefaultPipeConfigFactory.CreateDefaultSL(MedieType, GetPipeTypes());
+                pipeConfigsSL[MedieType] = config;
+            }
+            return config;
+        }
+        set
+        {
+            pipeConfigsSL[MedieType] = value;
+            OnPropertyChanged();
+        }
+    }
 
-    [ObservableProperty]
-    private double acceptVelocity350PlusFL = 3.0;
+    /// <summary>
+    /// All FL configurations keyed by medium (for serialization).
+    /// </summary>
+    public Dictionary<MediumTypeEnum, PipeTypeConfiguration> AllPipeConfigsFL
+    {
+        get => pipeConfigsFL;
+        set => pipeConfigsFL = value ?? new();
+    }
 
-    [ObservableProperty]
-    private int acceptPressureGradient20_150FL = 100;
+    /// <summary>
+    /// All SL configurations keyed by medium (for serialization).
+    /// </summary>
+    public Dictionary<MediumTypeEnum, PipeTypeConfiguration> AllPipeConfigsSL
+    {
+        get => pipeConfigsSL;
+        set => pipeConfigsSL = value ?? new();
+    }
 
-    [ObservableProperty]
-    private int acceptPressureGradient200_300FL = 100;
-
-    [ObservableProperty]
-    private int acceptPressureGradient350PlusFL = 120;
-
-    [ObservableProperty]
-    private PipeType pipeTypeFL = PipeType.Stål;
-
-    [ObservableProperty]
-    private bool usePertFlextraFL = true;
-
-    [ObservableProperty]
-    private int pertFlextraMaxDnFL = 75; // Dropdown: 75, 63, 50, 40, 32, 25
-
-    // Service Lines (SL)
-    [ObservableProperty]
-    private int tempFremSL = 110;
-
-    [ObservableProperty]
-    private int tempReturSL = 75;
-
-    [ObservableProperty]
-    private double factorVarmtVandsTillægSL = 1.0;
-
-    [ObservableProperty]
-    private int nyttetimerOneUserSL = 2000;
-
-    [ObservableProperty]
-    private PipeType pipeTypeSL = PipeType.AluPEX; // Dropdown: AluPEX, Kobber, Stål, PertFlextra, Pe
-
-    [ObservableProperty]
-    private double acceptVelocityFlexibleSL = 1.0;
-
-    [ObservableProperty]
-    private double acceptVelocity20_150SL = 1.5;
-
-    [ObservableProperty]
-    private int acceptPressureGradientFlexibleSL = 600;
-
-    [ObservableProperty]
-    private int acceptPressureGradient20_150SL = 600;
-
+    /// <summary>
+    /// Maximum allowed pressure loss in service lines (bar).
+    /// </summary>
     [ObservableProperty]
     private double maxPressureLossStikSL = 0.3;
+    #endregion
 
+    #region Block Type Filter Settings
+    /// <summary>
+    /// Filter toggles for block types. When true, that type is INCLUDED in calculations.
+    /// Stored as individual bools to minimize DWG storage (7 bools vs string collection).
+    /// </summary>
+    [ObservableProperty]
+    private bool filterEl = true;
+
+    [ObservableProperty]
+    private bool filterNaturgas = true;
+
+    [ObservableProperty]
+    private bool filterVarmepumpe = true;
+
+    [ObservableProperty]
+    private bool filterFastBrændsel = true;
+
+    [ObservableProperty]
+    private bool filterOlie = true;
+
+    [ObservableProperty]
+    private bool filterFjernvarme = true;
+
+    /// <summary>
+    /// Combined filter for "Andet", "Ingen", and "UDGÅR" types.
+    /// </summary>
+    [ObservableProperty]
+    private bool filterAndetIngenUdgår = false;
+
+    /// <summary>
+    /// Gets the set of accepted block types based on filter bool settings.
+    /// Generated on-the-fly to avoid storing string collections in DWG.
+    /// If no filters are active, returns all block types (no filtering).
+    /// </summary>
+    public HashSet<string> GetAcceptedBlockTypes()
+    {
+        var accepted = new HashSet<string>();
+
+        if (FilterEl) accepted.Add("El");
+        if (FilterNaturgas) accepted.Add("Naturgas");
+        if (FilterVarmepumpe) accepted.Add("Varmepumpe");
+        if (FilterFastBrændsel) accepted.Add("Fast brændsel");
+        if (FilterOlie) accepted.Add("Olie");
+        if (FilterFjernvarme) accepted.Add("Fjernvarme");
+        if (FilterAndetIngenUdgår)
+        {
+            accepted.Add("Andet");
+            accepted.Add("Ingen");
+            accepted.Add("UDGÅR");
+        }
+
+        // If nothing is selected, accept all (no filtering)
+        if (accepted.Count == 0)
+            return DimensioneringV2.CommonVariables.AllBlockTypes;
+
+        return accepted;
+    }
+    #endregion
+
+    #region Initialization
+    /// <summary>
+    /// Ensures pipe configurations are initialized with defaults if null.
+    /// Call this after loading/deserializing settings.
+    /// </summary>
+    public void EnsureInitialized()
+    {
+        // Access the properties to trigger lazy initialization if needed
+        _ = PipeConfigFL;
+        _ = PipeConfigSL;
+    }
+
+    partial void OnMedieTypeChanged(MediumTypeEnum value)
+    {
+        // Notify that pipe configs may have changed (they're per-medium)
+        OnPropertyChanged(nameof(PipeConfigFL));
+        OnPropertyChanged(nameof(PipeConfigSL));
+    }
+    #endregion
+
+    #region Copy Support
     internal void CopyFrom(HydraulicSettings src)
     {
         if (src == null) throw new ArgumentNullException(nameof(src));
@@ -145,4 +319,5 @@ public partial class HydraulicSettings : ObservableObject, IHydraulicSettings
             p.SetValue(this, p.GetValue(src));
         }
     }
+    #endregion
 }

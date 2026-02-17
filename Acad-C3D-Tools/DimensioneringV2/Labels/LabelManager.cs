@@ -26,13 +26,17 @@ namespace DimensioneringV2.Labels
 
                 LabelMethod = (feature) =>
                 {
-                    var attrName = AnalysisFeature.GetAttributeName(prop);
-                    var value = feature[attrName];
+                    // Use GetDisplayValue to invoke property getter with any custom logic,
+                    // rather than direct attribute access which bypasses property logic.
+                    var value = feature is AnalysisFeature af
+                        ? af.GetDisplayValue(prop)
+                        : feature[AnalysisFeature.GetAttributeName(prop)];
 
                     return prop switch
                     {
                         MapPropertyEnum.CriticalPath => formatCriticalPath(feature),
                         MapPropertyEnum.UtilizationRate => value is double d ? $"{d * 100:F0}%" : value?.ToString(),
+                        MapPropertyEnum.Nyttetimer => value is int nt && nt > 0 ? nt.ToString() : null,
                         _ => value switch
                         {
                             double d => d.ToString("F2"),
