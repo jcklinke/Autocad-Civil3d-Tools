@@ -17,10 +17,10 @@ namespace SheetCreationAutomation.Services
             this.overlayPresenter = overlayPresenter;
         }
 
-        public async Task WaitUntilAsync(string stepName, Func<bool> condition, CancellationToken cancellationToken)
+        public async Task<WaitResult> WaitUntilAsync(string stepName, Func<bool> condition, CancellationToken cancellationToken)
             => await WaitUntilAsync(stepName, condition, cancellationToken, continueOnCapturedContext: true);
 
-        public async Task WaitUntilAsync(
+        public async Task<WaitResult> WaitUntilAsync(
             string stepName,
             Func<bool> condition,
             CancellationToken cancellationToken,
@@ -32,16 +32,15 @@ namespace SheetCreationAutomation.Services
             {
                 while (true)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    if (cancellationToken.IsCancellationRequested)
+                        return WaitResult.Cancelled;
 
                     if (condition())
-                    {
-                        return;
-                    }
+                        return WaitResult.Completed;
 
                     if (sw.Elapsed >= waitPolicy.Timeout)
                     {
-                        throw new TimeoutException($"Timed out after {waitPolicy.Timeout.TotalSeconds:F0}s waiting for: {stepName}");
+                        return WaitResult.TimedOut($"Timed out after {waitPolicy.Timeout.TotalSeconds:F0}s waiting for: {stepName}");
                     }
 
                     if (sw.Elapsed >= waitPolicy.OverlayThreshold)
@@ -49,8 +48,7 @@ namespace SheetCreationAutomation.Services
                         overlayPresenter.Show(stepName, sw.Elapsed);
                     }
 
-                    await Task.Delay(waitPolicy.PollInterval, cancellationToken)
-                        .ConfigureAwait(continueOnCapturedContext);
+                    await Task.Delay(waitPolicy.PollInterval).ConfigureAwait(continueOnCapturedContext);
                 }
             }
             finally

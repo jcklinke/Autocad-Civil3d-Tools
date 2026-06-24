@@ -151,7 +151,7 @@ namespace LERImporter
                     registreringFra = trace.registreringFra,
                     vejledendeDybde = trace.vejledendeDybde,
                     indtegningsmetode = trace.indtegningsmetode,
-                    sikkerhedshensyn = trace.sikkerhedshensyn,                    
+                    sikkerhedshensyn = trace.sikkerhedshensyn,
 
                     // Set Energinet-specific properties
                     spaendingsniveau = new MeasureType { Value = 132, uom = "kV" },
@@ -182,6 +182,8 @@ namespace LERImporter
 
             #region Draw graveforesp polygon
             string layerNameGFP = "GraveforespPolygon";
+
+            bool addEnerginetWarningText = ledninger.Any(x => x.ledningsejer == EnerginetLedningsejer);
 
             if (Db2d != null)
             {
@@ -214,6 +216,9 @@ namespace LERImporter
                     hatch.EvaluateHatch(true);
 
                     hatch.Layer = layerNameGFP;
+
+                    prdDbg($"Energinet warning trigger: {addEnerginetWarningText}, graveforesps: {graveforesps.Count}");
+
                 }
             }
 
@@ -297,7 +302,7 @@ namespace LERImporter
                         AddPropertySetDefinitionToDb(Db3d, propSetDef, psName);
                     }
                 }
-            }            
+            }
             #endregion
 
             #region Create elements
@@ -444,6 +449,79 @@ namespace LERImporter
                     PropertySetManager.WriteNonDefinedPropertySetString(
                         ent, psName, "LerNummer", komponent.LerNummer);
                 }
+
+                if (addEnerginetWarningText)
+                {
+                    Log.log("Energinet warning text: trigger is TRUE.");
+
+                    Transaction tx = Db2d.TransactionManager.TopTransaction;
+
+                    BlockTable bt = tx.GetObject(Db2d.BlockTableId, OpenMode.ForRead) as BlockTable;
+                    BlockTableRecord ms = tx.GetObject(
+                        bt[BlockTableRecord.ModelSpace],
+                        OpenMode.ForWrite) as BlockTableRecord;
+
+                    Extents3d? extents = null;
+
+                    foreach (ObjectId objectId in ms)
+                    {
+                        Entity entity = tx.GetObject(objectId, OpenMode.ForRead) as Entity;
+                        if (entity == null) continue;
+
+                        try
+                        {
+                            Extents3d entityExtents = entity.GeometricExtents;
+
+                            if (extents == null)
+                            {
+                                extents = entityExtents;
+                            }
+                            else
+                            {
+                                Extents3d combinedExtents = extents.Value;
+                                combinedExtents.AddExtents(entityExtents);
+                                extents = combinedExtents;
+                            }
+                        }
+                        catch
+                        {
+                            // Some entities do not expose geometric extents.
+                        }
+                    }
+
+                    if (extents == null)
+                    {
+                        Log.log("Energinet warning text: no extents found, text not added.");
+                    }
+                    else
+                    {
+                        Point3d min = extents.Value.MinPoint;
+                        Point3d max = extents.Value.MaxPoint;
+
+                        Point3d warningTextLocation = new Point3d(
+                            (min.X + max.X) / 2.0,
+                            (min.Y + max.Y) / 2.0,
+                            0.0);
+
+                        double warningTextHeight = Math.Max(
+                            Math.Max(max.X - min.X, max.Y - min.Y) / 20.0,
+                            100.0);
+
+                        MText warningText = new MText();
+                        warningText.SetDatabaseDefaults(Db2d);
+                        warningText.Contents = "!!!Kontakt Energinet!!!";
+                        warningText.Location = warningTextLocation;
+                        warningText.TextHeight = warningTextHeight;
+                        warningText.Attachment = AttachmentPoint.MiddleCenter;
+                        warningText.Color = Color.FromColorIndex(ColorMethod.ByAci, 1);
+                        warningText.Layer = "0";
+
+                        ms.AppendEntity(warningText);
+                        tx.AddNewlyCreatedDBObject(warningText, true);
+
+                        Log.log($"Energinet warning text: added to 2DLER at X={warningTextLocation.X}, Y={warningTextLocation.Y}, height={warningTextHeight}.");
+                    }
+                }
             }
             #endregion
 
@@ -539,42 +617,43 @@ namespace LERImporter
 
                 if (missingLineTypes.Count > 0)
                 {
-                    Database ltDb = new Database(false, true);
-                    ltDb.ReadDwgFile("X:\\AutoCAD DRI - 01 Civil 3D\\Projection_styles.dwg",
-                        FileOpenMode.OpenForReadAndAllShare, false, null);
-                    Transaction ltTx = ltDb.TransactionManager.StartTransaction();
-
-                    Oid destDbMsId = SymbolUtilityServices.GetBlockModelSpaceId(Db2d);
-
-                    LinetypeTable sourceLtt = (LinetypeTable)ltDb.TransactionManager.TopTransaction
-                        .GetObject(ltDb.LinetypeTableId, OpenMode.ForRead);
-                    ObjectIdCollection idsToClone = new ObjectIdCollection();
-
-                    HashSet<string> errorneousLineTypes = new HashSet<string>();
-                    foreach (string missingName in missingLineTypes)
+                    using (Database ltDb = new Database(false, true))
                     {
-                        if (!sourceLtt.Has(missingName))
+                        ltDb.ReadDwgFile("X:\\AutoCAD DRI - 01 Civil 3D\\Projection_styles.dwg",
+                            FileOpenMode.OpenForReadAndAllShare, false, null);
+                        using (Transaction ltTx = ltDb.TransactionManager.StartTransaction())
                         {
-                            Log.log($"ERROR! Could not find missing linetype {missingName} in Projection_styles.dwg!");
-                            errorneousLineTypes.Add(missingName);
-                            continue;
+                            Oid destDbMsId = SymbolUtilityServices.GetBlockModelSpaceId(Db2d);
+
+                            LinetypeTable sourceLtt = (LinetypeTable)ltTx
+                                .GetObject(ltDb.LinetypeTableId, OpenMode.ForRead);
+                            ObjectIdCollection idsToClone = new ObjectIdCollection();
+
+                            HashSet<string> errorneousLineTypes = new HashSet<string>();
+                            foreach (string missingName in missingLineTypes)
+                            {
+                                if (!sourceLtt.Has(missingName))
+                                {
+                                    Log.log($"ERROR! Could not find missing linetype {missingName} in Projection_styles.dwg!");
+                                    errorneousLineTypes.Add(missingName);
+                                    continue;
+                                }
+                                idsToClone.Add(sourceLtt[missingName]);
+                            }
+
+                            if (errorneousLineTypes.Count > 0)
+                            {
+                                StringBuilder sb = new StringBuilder();
+                                sb.AppendLine("The following linetypes could not be found in Projection_styles.dwg:");
+                                foreach (var item in errorneousLineTypes) sb.AppendLine(item);
+                                throw new System.Exception(sb.ToString());
+                            }
+
+                            IdMapping mapping = new IdMapping();
+                            ltDb.WblockCloneObjects(idsToClone, destDbMsId, mapping, DuplicateRecordCloning.Replace, false);
+                            ltTx.Commit();
                         }
-                        idsToClone.Add(sourceLtt[missingName]);
                     }
-
-                    if (errorneousLineTypes.Count > 0)
-                    {
-                        StringBuilder sb = new StringBuilder();
-                        sb.AppendLine("The following linetypes could not be found in Projection_styles.dwg:");
-                        foreach (var item in errorneousLineTypes) sb.AppendLine(item);
-                        throw new System.Exception(sb.ToString());
-                    }
-
-                    IdMapping mapping = new IdMapping();
-                    ltDb.WblockCloneObjects(idsToClone, destDbMsId, mapping, DuplicateRecordCloning.Replace, false);
-                    ltTx.Commit();
-                    ltTx.Dispose();
-                    ltDb.Dispose();
                 }
 
                 Oid lineTypeId;

@@ -10,8 +10,6 @@ using Autodesk.Civil.ApplicationServices;
 using Autodesk.Civil.DatabaseServices;
 using Autodesk.Civil.DatabaseServices.Styles;
 using Autodesk.Civil.DataShortcuts;
-using Autodesk.Aec.PropertyData;
-using Autodesk.Aec.PropertyData.DatabaseServices;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -24,7 +22,6 @@ using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Windows.Forms;
 using System.Data;
-using System.Data.SqlClient;
 using System.Reflection;
 using GroupByCluster;
 using IntersectUtilities.UtilsCommon;
@@ -56,12 +53,12 @@ using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using Newtonsoft.Json;
 using Autodesk.Gis.Map;
 using Autodesk.Gis.Map.ObjectData;
-using IntersectUtilities.PipeScheduleV2;
 using IntersectUtilities.Dimensionering.Forms;
 using Schema.Datafordeler;
-using DimensioneringV2;
 using Microsoft.Win32;
 using Microsoft.VisualBasic.FileIO;
+
+[assembly: CommandClass(typeof(IntersectUtilities.Dimensionering.NoCommands))]
 
 namespace IntersectUtilities.Dimensionering
 {
@@ -80,6 +77,7 @@ namespace IntersectUtilities.Dimensionering
                     "AcMPolygonObj" + Application.Version.Major + ".dbx", false, false);
             }
 
+            doc.Editor.WriteMessage("\n٩(ˊᗜˋ*)و Dimensionering v1 loaded! (◕‿◕✿)\n");
             doc.Editor.WriteMessage("\n-> Import SYMBOL blocks ved opstart på ny tegning: DIMPREPAREDWG");
             doc.Editor.WriteMessage("\n-> Import BBR data to blocks: DIMIMPORTBBRBLOCKS");
             doc.Editor.WriteMessage("\n-> Assign areas to BBR blocks and delete the rest: DIMINTERSECTAREAS");
@@ -91,10 +89,6 @@ namespace IntersectUtilities.Dimensionering
             doc.Editor.WriteMessage("\n-> Write data to excel: DIMWRITEEXCEL");
             doc.Editor.WriteMessage("\n-> 1) Prepare 2) Import BBR 3) Intersect 4) Husnr 5) Populate 6) Dump adresser 7) Write excel");
 
-#if DEBUG
-            AppDomain.CurrentDomain.AssemblyResolve +=
-                new ResolveEventHandler(MissingAssemblyLoader.Debug_AssemblyResolve);
-#endif
         }
 
         public void Terminate()
@@ -1638,11 +1632,11 @@ namespace IntersectUtilities.Dimensionering
             string adresserPath = path + "DAR_adresse.json";
             if (!File.Exists(adresserPath)) { prdDbg("DAR_adresse.json does not exist!"); return; }
 
-            var bygninger = UtilsCommon.Json.Deserialize<HashSet<BBRBygning.Bygning>>(bygningerPath)
+            var bygninger = UtilsCommon.Serialization.Json.Deserialize<HashSet<BBRBygning.Bygning>>(bygningerPath)
                 .Where(x => x.status == "6");
-            var adresser = UtilsCommon.Json.Deserialize<HashSet<DARAdresse.Adresse>>(adresserPath)
+            var adresser = UtilsCommon.Serialization.Json.Deserialize<HashSet<DARAdresse.Adresse>>(adresserPath)
                 .Where(x => x.status == "3");
-            var enheder = UtilsCommon.Json.ReadJson(enhederPath);
+            var enheder = UtilsCommon.Serialization.Json.ReadJson(enhederPath);
             #endregion
 
             using (Transaction tx = localDb.TransactionManager.StartTransaction())
@@ -1780,7 +1774,7 @@ namespace IntersectUtilities.Dimensionering
             if (!File.Exists(enhederPath))
             { prdDbg("BBR_enhed.json does not exist! Download med RestHenter!"); return; }
 
-            var enheder = UtilsCommon.Json.Deserialize<HashSet<BBREnhed.Enhed>>(enhederPath)
+            var enheder = UtilsCommon.Serialization.Json.Deserialize<HashSet<BBREnhed.Enhed>>(enhederPath)
                 .Where(x => x.status == "6" || x.status == "7");
 
             var enhedsDict = enheder
@@ -5117,4 +5111,6 @@ namespace IntersectUtilities.Dimensionering
             }
         }
     }
+
+    public class NoCommands { }
 }

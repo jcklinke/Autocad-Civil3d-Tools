@@ -22,11 +22,8 @@ namespace IsoTools
         #region IExtensionApplication members
         public void Initialize()
         {
-            prdDbg("\nIsoTools loaded!");
-
-#if DEBUG
-            AppDomain.CurrentDomain.AssemblyResolve += new ResolveEventHandler(Debug_AssemblyResolve);
-#endif
+            Document doc = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
+            doc.Editor.WriteMessage("\n(｡◕‿◕｡) IsoTools loaded! (｡◕‿◕｡)\n");
         }
 
         public void Terminate()

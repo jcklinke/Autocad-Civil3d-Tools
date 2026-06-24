@@ -118,6 +118,34 @@ namespace IntersectUtilities.DataScience.PropertySetBrowser
             return template;
         }
 
+        #region Search
+        private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            bool hasText = !string.IsNullOrEmpty(SearchBox.Text);
+            SearchWatermark.Visibility = hasText
+                ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+            ClearSearchButton.Visibility = hasText
+                ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+            _viewModel.FilterText = SearchBox.Text;
+            _viewModel.ApplyFilter();
+        }
+
+        private void SearchBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                SearchBox.Text = "";
+                ListViewData.Focus();
+            }
+        }
+
+        private void ClearSearch_Click(object sender, RoutedEventArgs e)
+        {
+            SearchBox.Text = "";
+            SearchBox.Focus();
+        }
+        #endregion
+
         private void ListView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             // Zoom to entity on double-click (only if clicking on an item, not header)

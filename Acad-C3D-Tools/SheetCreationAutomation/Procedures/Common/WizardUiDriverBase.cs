@@ -29,16 +29,16 @@ namespace SheetCreationAutomation.Procedures.Common
             AutomationRunLog.Append(message);
         }
 
-        protected async Task<IntPtr> WaitForDialogAsync(IntPtr mainHwnd, string title, CancellationToken cancellationToken)
+        protected async Task<WaitResult<IntPtr>> WaitForDialogAsync(IntPtr mainHwnd, string title, CancellationToken cancellationToken)
             => await WaitForDialogAsync(mainHwnd, WizardDialog(title), cancellationToken);
 
-        protected async Task<IntPtr> WaitForDialogAsync(
+        protected async Task<WaitResult<IntPtr>> WaitForDialogAsync(
             IntPtr mainHwnd,
             DialogSearchOptions options,
             CancellationToken cancellationToken)
         {
             IntPtr dialog = IntPtr.Zero;
-            await Waiter.WaitUntilAsync($"Dialog '{options.ExpectedTitle}'", () =>
+            WaitResult wait = await Waiter.WaitUntilAsync($"Dialog '{options.ExpectedTitle}'", () =>
             {
                 dialog = FindDialog(mainHwnd, options);
                 if (dialog != IntPtr.Zero)
@@ -49,16 +49,17 @@ namespace SheetCreationAutomation.Procedures.Common
                 return dialog != IntPtr.Zero;
             }, cancellationToken, continueOnCapturedContext: false);
 
-            return dialog;
+            if (!wait.IsCompleted) return WaitResult<IntPtr>.From(wait);
+            return WaitResult<IntPtr>.Of(dialog);
         }
 
-        protected async Task<IntPtr> WaitForDialogContainingTextAsync(
+        protected async Task<WaitResult<IntPtr>> WaitForDialogContainingTextAsync(
             IntPtr mainHwnd,
             string textFragment,
             CancellationToken cancellationToken)
         {
             IntPtr dialog = IntPtr.Zero;
-            await Waiter.WaitUntilAsync($"Dialog contains '{textFragment}'", () =>
+            WaitResult wait = await Waiter.WaitUntilAsync($"Dialog contains '{textFragment}'", () =>
             {
                 dialog = FindDialogContainingText(mainHwnd, textFragment);
                 if (dialog != IntPtr.Zero)
@@ -69,15 +70,39 @@ namespace SheetCreationAutomation.Procedures.Common
                 return dialog != IntPtr.Zero;
             }, cancellationToken, continueOnCapturedContext: false);
 
-            return dialog;
+            if (!wait.IsCompleted) return WaitResult<IntPtr>.From(wait);
+            return WaitResult<IntPtr>.Of(dialog);
         }
 
-        protected async Task WaitForDialogClosedAsync(IntPtr mainHwnd, string title, CancellationToken cancellationToken)
+        protected async Task<WaitResult> WaitForDialogClosedAsync(IntPtr mainHwnd, string title, CancellationToken cancellationToken)
+            => await WaitForDialogClosedAsync(mainHwnd, WizardDialog(title), cancellationToken);
+
+        protected async Task<WaitResult> WaitForDialogClosedAsync(
+            IntPtr mainHwnd,
+            DialogSearchOptions options,
+            CancellationToken cancellationToken)
         {
-            await Waiter.WaitUntilAsync($"Dialog '{title}' to close", () =>
+            return await Waiter.WaitUntilAsync($"Dialog '{options.ExpectedTitle}' to close", () =>
             {
-                IntPtr dialog = FindDialog(mainHwnd, WizardDialog(title));
+                IntPtr dialog = FindDialog(mainHwnd, options);
                 return dialog == IntPtr.Zero;
+            }, cancellationToken, continueOnCapturedContext: false);
+        }
+
+        protected async Task<WaitResult> WaitForControlEnabledAsync(
+            IntPtr dialog,
+            string classNN,
+            CancellationToken cancellationToken)
+        {
+            return await Waiter.WaitUntilAsync($"Control '{classNN}' enabled", () =>
+            {
+                IntPtr control = Win32WindowTools.FindChildByClassNN(dialog, classNN);
+                if (control == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                return Win32WindowTools.GetMetadata(control).IsEnabled;
             }, cancellationToken, continueOnCapturedContext: false);
         }
 
@@ -99,6 +124,69 @@ namespace SheetCreationAutomation.Procedures.Common
 
             string caption = Win32WindowTools.GetWindowTextRaw(button);
             Trace($"CLICK: {classNN} '{caption}' on 0x{dialog.ToInt64():X}");
+            Win32WindowTools.Click(button);
+        }
+
+        /// <summary>
+        /// Posts BM_CLICK instead of sending it synchronously.
+        /// Use for buttons that open modal dialogs (file browse, etc.).
+        /// </summary>
+        protected void PostClickButtonByClassNN(IntPtr dialog, string classNN)
+        {
+            IntPtr button = Win32WindowTools.FindChildByClassNN(dialog, classNN);
+            if (button == IntPtr.Zero)
+            {
+                throw new InvalidOperationException($"Button not found. classNN={classNN}");
+            }
+
+            WindowMetadata meta = Win32WindowTools.GetMetadata(button);
+            if (!meta.IsEnabled)
+            {
+                string captionDisabled = Win32WindowTools.GetWindowTextRaw(button);
+                throw new InvalidOperationException(
+                    $"Button is disabled. classNN={classNN}, caption='{captionDisabled}'");
+            }
+
+            string caption = Win32WindowTools.GetWindowTextRaw(button);
+            Trace($"POST_CLICK: {classNN} '{caption}' on 0x{dialog.ToInt64():X}");
+            Win32WindowTools.PostClick(button);
+        }
+
+        protected void ClickControlCenterByTitle(IntPtr dialog, string title)
+        {
+            IntPtr control = Win32WindowTools.FindDescendantByTitle(dialog, title);
+            if (control == IntPtr.Zero)
+            {
+                throw new InvalidOperationException($"Control not found by title. title='{title}'");
+            }
+
+            WindowMetadata meta = Win32WindowTools.GetMetadata(control);
+            if (!meta.IsEnabled)
+            {
+                throw new InvalidOperationException(
+                    $"Control is disabled. title='{title}'");
+            }
+
+            Trace($"CLICK_CENTER_TITLE: '{title}' on 0x{dialog.ToInt64():X}");
+            Win32WindowTools.ClickCenterClient(control);
+        }
+
+        protected void ClickButtonByTitle(IntPtr dialog, string buttonTitle)
+        {
+            IntPtr button = Win32WindowTools.FindDescendantByClassAndTitle(dialog, "Button", buttonTitle);
+            if (button == IntPtr.Zero)
+            {
+                throw new InvalidOperationException($"Button not found by title. title='{buttonTitle}'");
+            }
+
+            WindowMetadata meta = Win32WindowTools.GetMetadata(button);
+            if (!meta.IsEnabled)
+            {
+                throw new InvalidOperationException(
+                    $"Button is disabled. title='{buttonTitle}'");
+            }
+
+            Trace($"CLICK_BY_TITLE: '{buttonTitle}' on 0x{dialog.ToInt64():X}");
             Win32WindowTools.Click(button);
         }
 
@@ -154,12 +242,8 @@ namespace SheetCreationAutomation.Procedures.Common
         protected static IntPtr FindDialog(IntPtr mainHwnd, DialogSearchOptions options)
         {
             uint mainPid = Win32WindowTools.GetMetadata(mainHwnd).ProcessId;
-            var candidates = new List<IntPtr>();
 
-            candidates.AddRange(Win32WindowTools.EnumerateChildWindows(mainHwnd, includeRoot: true));
-            candidates.AddRange(Win32WindowTools.EnumerateTopLevelWindows());
-
-            foreach (IntPtr hwnd in candidates.Distinct())
+            foreach (IntPtr hwnd in CollectProcessWindows(mainHwnd, mainPid))
             {
                 WindowMetadata meta = Win32WindowTools.GetMetadata(hwnd);
                 if (meta.ProcessId != mainPid || !meta.IsVisible)
@@ -185,11 +269,8 @@ namespace SheetCreationAutomation.Procedures.Common
         protected static IntPtr FindDialogContainingText(IntPtr mainHwnd, string textFragment)
         {
             uint mainPid = Win32WindowTools.GetMetadata(mainHwnd).ProcessId;
-            var candidates = new List<IntPtr>();
-            candidates.AddRange(Win32WindowTools.EnumerateChildWindows(mainHwnd, includeRoot: true));
-            candidates.AddRange(Win32WindowTools.EnumerateTopLevelWindows());
 
-            foreach (IntPtr hwnd in candidates.Distinct())
+            foreach (IntPtr hwnd in CollectProcessWindows(mainHwnd, mainPid))
             {
                 WindowMetadata meta = Win32WindowTools.GetMetadata(hwnd);
                 if (meta.ProcessId != mainPid || !meta.IsVisible)
@@ -209,6 +290,48 @@ namespace SheetCreationAutomation.Procedures.Common
             }
 
             return IntPtr.Zero;
+        }
+
+        /// <summary>
+        /// Builds a comprehensive candidate list that covers the full Win32 window hierarchy:
+        /// 1. WS_CHILD descendants of mainHwnd (MDI children, toolbars, docked panels)
+        /// 2. Top-level windows (including owned popups like wizard dialogs)
+        /// 3. WS_CHILD descendants of same-process top-level windows (file browse dialogs
+        ///    spawned from owned popups — these are invisible to both EnumChildWindows(mainHwnd)
+        ///    and EnumWindows because they sit in the gap between the two)
+        /// </summary>
+        private static IEnumerable<IntPtr> CollectProcessWindows(IntPtr mainHwnd, uint mainPid)
+        {
+            var seen = new HashSet<IntPtr>();
+            var result = new List<IntPtr>();
+
+            void Add(IntPtr hwnd)
+            {
+                if (seen.Add(hwnd))
+                {
+                    result.Add(hwnd);
+                }
+            }
+
+            foreach (IntPtr hwnd in Win32WindowTools.EnumerateChildWindows(mainHwnd, includeRoot: true))
+            {
+                Add(hwnd);
+            }
+
+            foreach (IntPtr topLevel in Win32WindowTools.EnumerateTopLevelWindows())
+            {
+                Add(topLevel);
+
+                if (Win32WindowTools.GetMetadata(topLevel).ProcessId == mainPid)
+                {
+                    foreach (IntPtr child in Win32WindowTools.EnumerateChildWindows(topLevel))
+                    {
+                        Add(child);
+                    }
+                }
+            }
+
+            return result;
         }
 
         protected static bool DialogContainsText(IntPtr dialog, string textFragment)

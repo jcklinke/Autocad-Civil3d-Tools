@@ -52,6 +52,8 @@ using NetTopologySuite.Geometries;
 using Point = NetTopologySuite.Geometries.Point;
 using IntersectUtilities.UtilsCommon.DataManager;
 
+[assembly: CommandClass(typeof(IntersectUtilities.NSTBL.NoCommands))]
+
 namespace IntersectUtilities.NSTBL
 {
     public class DimensioneringExtension : IExtensionApplication
@@ -59,13 +61,8 @@ namespace IntersectUtilities.NSTBL
         #region IExtensionApplication members
         public void Initialize()
         {
-            //Document doc = Application.DocumentManager.MdiActiveDocument;
-            //if (doc != null)
-            //{
-            //    SystemObjects.DynamicLinker.LoadModule(
-            //        "AcMPolygonObj" + Application.Version.Major + ".dbx", false, false);
-            //}
-
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            doc.Editor.WriteMessage("\n(◠‿◠) NSTBL loaded! (◠‿◠)\n");
         }
 
         public void Terminate()
@@ -144,7 +141,8 @@ namespace IntersectUtilities.NSTBL
             DocumentCollection docCol = Application.DocumentManager;
             Database localDb = docCol.MdiActiveDocument.Database;
 
-            DataReferencesOptions dro = new DataReferencesOptions();
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return null;
             DataManager dm = new DataManager(dro);
 
             using Database fremDb = dm.Fremtid();            
@@ -455,4 +453,6 @@ namespace IntersectUtilities.NSTBL
             #endregion
         }
     }
+
+    public class NoCommands { }
 }

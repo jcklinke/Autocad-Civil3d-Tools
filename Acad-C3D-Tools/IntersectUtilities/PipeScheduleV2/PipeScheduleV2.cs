@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 
@@ -108,8 +108,10 @@ namespace IntersectUtilities.PipeScheduleV2
             { "CU", typeof(PipeTypeCU) },
             //{ "PEXU", typeof(PipeTypePEXU) },
             { "PRTFLEXL", typeof(PipeTypePRTFLEXL) },
+            { "PRTPIPE", typeof(PipeTypePRTPIPE) },
             { "AQTHRM11", typeof(PipeTypeAQTHRM11) },
             { "PE", typeof(PipeTypePE) },
+            { "FIBREFLEX", typeof(PipeTypeFIBREFLEX) },
         };
         public static Dictionary<string, PipeSystemEnum> systemDict = new Dictionary<string, PipeSystemEnum>()
         {
@@ -118,8 +120,10 @@ namespace IntersectUtilities.PipeScheduleV2
             { "CU", PipeSystemEnum.Kobberflex },
             //{"PEXU", PipeSystemEnum.PexU },
             { "PRTFLEXL", PipeSystemEnum.PertFlextra },
+            { "PRTPIPE", PipeSystemEnum.PertPIPE },
             { "AQTHRM11", PipeSystemEnum.AquaTherm11 },
             { "PE", PipeSystemEnum.PE },
+            { "FIBREFLEX", PipeSystemEnum.FibreFlex },
         };
         private static Dictionary<PipeSystemEnum, string> systemDictReversed =
             new Dictionary<PipeSystemEnum, string>()
@@ -129,8 +133,10 @@ namespace IntersectUtilities.PipeScheduleV2
                 {PipeSystemEnum.Kobberflex , "CU" },
                 //{PipeSystemEnum.PexU , "PEXU" },
                 {PipeSystemEnum.PertFlextra , "PRTFLEXL" },
+                {PipeSystemEnum.PertPIPE , "PRTPIPE" },
                 {PipeSystemEnum.AquaTherm11 , "AQTHRM11" },
                 {PipeSystemEnum.PE, "PE" } ,
+                {PipeSystemEnum.FibreFlex, "FIBREFLEX" },
             };
         private static Dictionary<PipeSystemEnum, string> lineTypePrefixDict =
             new Dictionary<PipeSystemEnum, string>()
@@ -140,18 +146,38 @@ namespace IntersectUtilities.PipeScheduleV2
                 {PipeSystemEnum.Kobberflex , "CU" },
                 //{PipeSystemEnum.PexU , "PEXU" },
                 {PipeSystemEnum.PertFlextra , "PRT" },
+                {PipeSystemEnum.PertPIPE , "PRTP" },
                 {PipeSystemEnum.AquaTherm11 , "AT" },
                 {PipeSystemEnum.PE, "PE" },
+                {PipeSystemEnum.FibreFlex, "FF" },
             };
         private static Dictionary<PipeSystemEnum, double[]> availableStdLengths = new()
         {
-            {PipeSystemEnum.Stål, new double[] {12, 16}},
-            {PipeSystemEnum.AluPex, new double[] {100}},
-            {PipeSystemEnum.Kobberflex, new double[] { 100 }},
-            //{PipeSystemEnum.PexU, new[] {100}},
-            {PipeSystemEnum.PertFlextra, new double[] {12, 16, 100}},
-            {PipeSystemEnum.AquaTherm11, new double[] {11.6}},
-            {PipeSystemEnum.PE, new double[] {12, 50}}
+            {PipeSystemEnum.Stål, [12, 16]},
+            {PipeSystemEnum.AluPex, [16, 100]},
+            {PipeSystemEnum.Kobberflex, [100]},
+            //{PipeSystemEnum.PexU, new[] {100]},
+            {PipeSystemEnum.PertFlextra, [12, 16, 100]},
+            {PipeSystemEnum.PertPIPE, [12]},
+            {PipeSystemEnum.AquaTherm11, [11.6]},
+            {PipeSystemEnum.PE, [12, 50]},
+            // FibreFlex coil length varies per DN — the CSV's DefaultL column is
+            // the source of truth (see GetPipeStdLength). A single-element array
+            // makes the settings UI skip the length-picker (see PipeSettingsForm
+            // and PipeSettingsViewModel: `if (options.Length <= 1) continue;`).
+            {PipeSystemEnum.FibreFlex, [0]},
+        };
+        private static Dictionary<PipeSystemEnum, string> _sizePrefixes = new()
+        {
+            { PipeSystemEnum.Ukendt, "UK" },
+            { PipeSystemEnum.Stål, "DN" },
+            { PipeSystemEnum.Kobberflex, "Ø" },
+            { PipeSystemEnum.AluPex, "Ø" },
+            { PipeSystemEnum.PertFlextra, "Ø" },
+            { PipeSystemEnum.PertPIPE, "Ø" },
+            { PipeSystemEnum.AquaTherm11, "Ø" },
+            { PipeSystemEnum.FibreFlex, "Ø" },
+            { PipeSystemEnum.PE, "Ø" },
         };
         public static double[] GetStdLengthsForSystem(PipeSystemEnum pipeSystem) => availableStdLengths[pipeSystem];
         private static string pipeTypes = string.Join(
@@ -273,15 +299,17 @@ namespace IntersectUtilities.PipeScheduleV2
             var pipeType = _repository.GetPipeType(systemDictReversed[system]);
             return pipeType.GetPipeThk(dn);
         }
-        public static double GetPipeKOd(Entity ent, PipeSeriesEnum pipeSeries)
+        public static double GetPipeKOd(Entity ent, PipeSeriesEnum pipeSeries) =>
+            GetPipeKOd(ExtractLayerName(ent), pipeSeries);
+
+        public static double GetPipeKOd(string layerName, PipeSeriesEnum pipeSeries)
         {
-            PipeTypeEnum type = GetPipeType(ent, true);
-            PipeSystemEnum system = GetPipeSystem(ent);
+            PipeSystemEnum system = GetPipeSystem(layerName);
+            PipeTypeEnum type = GetPipeType(layerName);
+            int dn = GetPipeDN(layerName);
 
             if (!systemDictReversed.ContainsKey(system)) return 0.0;
             var pipeType = _repository.GetPipeType(systemDictReversed[system]);
-
-            int dn = GetPipeDN(ent);
 
             return pipeType.GetPipeKOd(dn, type, pipeSeries);
         }
@@ -373,7 +401,8 @@ namespace IntersectUtilities.PipeScheduleV2
             //Flexrør er altid insitu bukkede
             if (
                 system == PipeSystemEnum.Kobberflex ||
-                system == PipeSystemEnum.AluPex
+                system == PipeSystemEnum.AluPex ||
+                system == PipeSystemEnum.FibreFlex
                 ) return true;
 
             switch (type)
@@ -399,7 +428,8 @@ namespace IntersectUtilities.PipeScheduleV2
             //Flexrør er altid insitu bukkede
             if (
                 ps == PipeSystemEnum.Kobberflex ||
-                ps == PipeSystemEnum.AluPex
+                ps == PipeSystemEnum.AluPex ||
+                ps == PipeSystemEnum.FibreFlex
                 ) return true;
 
             switch (pt)
@@ -635,6 +665,12 @@ namespace IntersectUtilities.PipeScheduleV2
             if (!lineTypePrefixDict.ContainsKey(system))
                 throw new Exception($"Undefined PipeType system {system}!");
             return lineTypePrefixDict[system];
+        }
+        public static string GetSizePrefix(PipeSystemEnum system)
+        {
+            if (!_sizePrefixes.ContainsKey(system))
+                throw new Exception($"Undefined PipeType system {system}!");
+            return _sizePrefixes[system];
         }
         /// <summary>
         /// Currently set to return 0.6 m.
@@ -1042,6 +1078,23 @@ namespace IntersectUtilities.PipeScheduleV2
                     return "";
             }
         }
+        public override short GetLayerColor(PipeTypeEnum type)
+        {
+            switch (type)
+            {
+                case PipeTypeEnum.Ukendt:
+                    return 0;
+                case PipeTypeEnum.Twin:
+                    return 190;
+                case PipeTypeEnum.Frem:
+                    return 1;
+                case PipeTypeEnum.Retur:
+                    return 5;
+                case PipeTypeEnum.Enkelt:
+                    return 190;
+                default: return 0;
+            }
+        }
     }
     public class PipeTypeCU : PipeTypeBase
     {
@@ -1134,16 +1187,51 @@ namespace IntersectUtilities.PipeScheduleV2
                     return "";
             }
         }
+        public override short GetLayerColor(PipeTypeEnum type)
+        {
+            switch (type)
+            {
+                case PipeTypeEnum.Ukendt:
+                    return 0;
+                case PipeTypeEnum.Twin:
+                    return 190;
+                case PipeTypeEnum.Frem:
+                    return 1;
+                case PipeTypeEnum.Retur:
+                    return 5;
+                case PipeTypeEnum.Enkelt:
+                    return 190;
+                default: return 0;
+            }
+        }
         public override double GetPipeKOd(int dn, PipeTypeEnum type, PipeSeriesEnum series)
         {
             if (type == PipeTypeEnum.Retur ||
                 type == PipeTypeEnum.Frem)
                 type = PipeTypeEnum.Enkelt;
-
-            //We IGNORE the series for this type as it only has ONE series!
-
+            //Ignore series here as Flextra only has one series
+            //if (series != PipeSeriesEnum.S3) series = PipeSeriesEnum.S3;
             var result = _entries.FirstOrDefault(e => e.DN == dn && e.PipeType == type);
             return result?.kOd ?? 0;
+        }
+    }
+    public class PipeTypePRTPIPE : PipeTypeBase
+    {
+        public override string GetLabel(int DN, PipeTypeEnum type, double od, double kOd)
+        {
+            switch (type)
+            {
+                case PipeTypeEnum.Ukendt:
+                    return "";
+                case PipeTypeEnum.Twin:
+                    return $"PE-RT{DN}-ø{od.ToString("N0")}+ø{od.ToString("N0")}/{kOd.ToString("N0")}";
+                case PipeTypeEnum.Frem:
+                case PipeTypeEnum.Retur:
+                case PipeTypeEnum.Enkelt:
+                    return $"PE-RT{DN}-ø{od.ToString("N0")}/{kOd.ToString("N0")}";
+                default:
+                    return "";
+            }
         }
         public override short GetLayerColor(PipeTypeEnum type)
         {
@@ -1253,6 +1341,53 @@ namespace IntersectUtilities.PipeScheduleV2
                     return 160;
                 case PipeTypeEnum.Enkelt:
                     return 200;
+                default: return 0;
+            }
+        }
+    }
+    public class PipeTypeFIBREFLEX : PipeTypeBase
+    {
+        public override string GetLabel(int DN, PipeTypeEnum type, double od, double kOd)
+        {
+            switch (type)
+            {
+                case PipeTypeEnum.Ukendt:
+                    return "";
+                case PipeTypeEnum.Twin:
+                    return $"FF{DN}-ø{od.ToString("N0")}+ø{od.ToString("N0")}/{kOd.ToString("N0")}";
+                case PipeTypeEnum.Frem:
+                case PipeTypeEnum.Retur:
+                case PipeTypeEnum.Enkelt:
+                    return $"FF{DN}-ø{od.ToString("N0")}/{kOd.ToString("N0")}";
+                default:
+                    return "";
+            }
+        }
+        public override double GetPipeKOd(int dn, PipeTypeEnum type, PipeSeriesEnum series)
+        {
+            if (type == PipeTypeEnum.Retur ||
+                type == PipeTypeEnum.Frem)
+                type = PipeTypeEnum.Enkelt;
+
+            //We IGNORE the series for this type as it only has ONE series (S1)!
+
+            var result = _entries.FirstOrDefault(e => e.DN == dn && e.PipeType == type);
+            return result?.kOd ?? 0;
+        }
+        public override short GetLayerColor(PipeTypeEnum type)
+        {
+            switch (type)
+            {
+                case PipeTypeEnum.Ukendt:
+                    return 0;
+                case PipeTypeEnum.Twin:
+                    return 150;
+                case PipeTypeEnum.Frem:
+                    return 1;
+                case PipeTypeEnum.Retur:
+                    return 5;
+                case PipeTypeEnum.Enkelt:
+                    return 150;
                 default: return 0;
             }
         }

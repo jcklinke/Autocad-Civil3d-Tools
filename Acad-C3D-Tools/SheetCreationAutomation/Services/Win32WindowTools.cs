@@ -14,6 +14,8 @@ namespace SheetCreationAutomation.Services
         private const uint BM_GETCHECK = 0x00F0;
         private const uint BST_CHECKED = 0x0001;
         private const uint WM_NEXTDLGCTL = 0x0028;
+        private const uint WM_GETTEXT = 0x000D;
+        private const uint WM_GETTEXTLENGTH = 0x000E;
         private const uint WM_SETTEXT = 0x000C;
         private const uint WM_COMMAND = 0x0111;
         private const uint WM_KEYDOWN = 0x0100;
@@ -50,6 +52,9 @@ namespace SheetCreationAutomation.Services
         private const uint MAPVK_VK_TO_VSC = 0;
         private const uint GA_ROOT = 2;
         private const uint MK_LBUTTON = 0x0001;
+        private const uint INPUT_KEYBOARD = 1;
+        private const uint KEYEVENTF_KEYUP = 0x0002;
+        private const uint KEYEVENTF_UNICODE = 0x0004;
 
         [DllImport("user32.dll")]
         private static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -90,6 +95,16 @@ namespace SheetCreationAutomation.Services
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, string lParam);
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, StringBuilder lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr SendMessageTimeoutW(
+            IntPtr hWnd, uint msg, IntPtr wParam, StringBuilder lParam,
+            uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+
+        private const uint SMTO_ABORTIFHUNG = 0x0002;
+
         [DllImport("user32.dll")]
         private static extern IntPtr SetFocus(IntPtr hWnd);
 
@@ -116,6 +131,9 @@ namespace SheetCreationAutomation.Services
 
         [DllImport("user32.dll")]
         private static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
         public static IEnumerable<IntPtr> EnumerateChildWindows(IntPtr parent, bool includeRoot = false)
         {
@@ -165,6 +183,30 @@ namespace SheetCreationAutomation.Services
             foreach (IntPtr hwnd in EnumerateChildWindows(root, includeRoot: true))
             {
                 if (!IsWindow(hwnd))
+                {
+                    continue;
+                }
+
+                string title = GetWindowTextRaw(hwnd);
+                if (string.Equals(title, windowTitle, StringComparison.OrdinalIgnoreCase))
+                {
+                    return hwnd;
+                }
+            }
+
+            return IntPtr.Zero;
+        }
+
+        public static IntPtr FindDescendantByClassAndTitle(IntPtr root, string className, string windowTitle)
+        {
+            foreach (IntPtr hwnd in EnumerateChildWindows(root, includeRoot: true))
+            {
+                if (!IsWindow(hwnd))
+                {
+                    continue;
+                }
+
+                if (!string.Equals(GetClassNameRaw(hwnd), className, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -307,6 +349,23 @@ namespace SheetCreationAutomation.Services
             return true;
         }
 
+        /// <summary>
+        /// Posts a BM_CLICK message instead of sending it synchronously.
+        /// Use this for buttons whose click handler opens a modal dialog
+        /// (e.g. file browse), because SendMessage would block the calling
+        /// thread for the entire duration of the modal dialog.
+        /// </summary>
+        public static bool PostClick(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            PostMessage(hwnd, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
+            return true;
+        }
+
         public static bool FocusWindow(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero)
@@ -418,6 +477,39 @@ namespace SheetCreationAutomation.Services
 
             _ = SendMessage(comboHwnd, CB_SHOWDROPDOWN, IntPtr.Zero, IntPtr.Zero);
             return true;
+        }
+
+        public static void TypeChar(char c)
+        {
+            var down = new INPUT();
+            down.type = INPUT_KEYBOARD;
+            down.ki.wScan = c;
+            down.ki.dwFlags = KEYEVENTF_UNICODE;
+
+            var up = new INPUT();
+            up.type = INPUT_KEYBOARD;
+            up.ki.wScan = c;
+            up.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+
+            SendInput(2, new[] { down, up }, Marshal.SizeOf<INPUT>());
+        }
+
+        public static void TypeEnter()
+        {
+            ushort scanCode = (ushort)MapVirtualKey((uint)VK_RETURN, MAPVK_VK_TO_VSC);
+
+            var down = new INPUT();
+            down.type = INPUT_KEYBOARD;
+            down.ki.wVk = (ushort)VK_RETURN;
+            down.ki.wScan = scanCode;
+
+            var up = new INPUT();
+            up.type = INPUT_KEYBOARD;
+            up.ki.wVk = (ushort)VK_RETURN;
+            up.ki.wScan = scanCode;
+            up.ki.dwFlags = KEYEVENTF_KEYUP;
+
+            SendInput(2, new[] { down, up }, Marshal.SizeOf<INPUT>());
         }
 
         public static bool SendEnterToWindow(IntPtr hwnd)
@@ -681,6 +773,113 @@ namespace SheetCreationAutomation.Services
             };
         }
 
+        public static string GetTextSafe(IntPtr hwnd, uint timeoutMs = 50)
+        {
+            if (hwnd == IntPtr.Zero) return string.Empty;
+            var sb = new StringBuilder(512);
+            IntPtr result = SendMessageTimeoutW(
+                hwnd, WM_GETTEXT, new IntPtr(sb.Capacity), sb,
+                SMTO_ABORTIFHUNG, timeoutMs, out _);
+            return result == IntPtr.Zero ? string.Empty : sb.ToString();
+        }
+
+        public static IntPtr FindProcessDialogContainingText(uint processId, string textFragment)
+        {
+            foreach (IntPtr topLevel in EnumerateTopLevelWindows())
+            {
+                GetWindowThreadProcessId(topLevel, out uint pid);
+                if (pid != processId) continue;
+
+                if (IsWindowVisible(topLevel)
+                    && string.Equals(GetClassNameRaw(topLevel), "#32770", StringComparison.OrdinalIgnoreCase)
+                    && AnyDirectChildHasText(topLevel, textFragment))
+                {
+                    return topLevel;
+                }
+
+                foreach (IntPtr child in EnumerateChildWindows(topLevel))
+                {
+                    if (!IsWindowVisible(child)) continue;
+                    if (!string.Equals(GetClassNameRaw(child), "#32770", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (AnyDirectChildHasText(child, textFragment))
+                    {
+                        return child;
+                    }
+                }
+            }
+
+            return IntPtr.Zero;
+        }
+
+        public static IntPtr FindParentOfTextControl(uint processId, string textFragment)
+        {
+            foreach (IntPtr topLevel in EnumerateTopLevelWindows())
+            {
+                GetWindowThreadProcessId(topLevel, out uint pid);
+                if (pid != processId) continue;
+
+                foreach (IntPtr child in EnumerateChildWindows(topLevel))
+                {
+                    if (!IsWindowVisible(child)) continue;
+                    string text = GetTextSafe(child);
+                    if (text.Contains(textFragment, StringComparison.OrdinalIgnoreCase))
+                    {
+                        IntPtr parent = GetParent(child);
+                        if (parent != IntPtr.Zero && IsWindowVisible(parent))
+                            return parent;
+                    }
+                }
+            }
+
+            return IntPtr.Zero;
+        }
+
+        public static string DumpProcessDialogTree(uint processId)
+        {
+            var sb = new StringBuilder();
+            foreach (IntPtr topLevel in EnumerateTopLevelWindows())
+            {
+                GetWindowThreadProcessId(topLevel, out uint pid);
+                if (pid != processId) continue;
+
+                string cls = GetClassNameRaw(topLevel);
+                string title = GetWindowTextRaw(topLevel);
+                bool vis = IsWindowVisible(topLevel);
+                sb.AppendLine($"TOP 0x{topLevel.ToInt64():X} cls='{cls}' title='{Truncate(title, 60)}' vis={vis}");
+
+                if (!string.Equals(cls, "#32770", StringComparison.OrdinalIgnoreCase)
+                    && !cls.StartsWith("Afx", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                foreach (IntPtr child in EnumerateChildWindows(topLevel))
+                {
+                    string childCls = GetClassNameRaw(child);
+                    bool childVis = IsWindowVisible(child);
+                    if (!childVis) continue;
+                    string childTitle = GetTextSafe(child, 30);
+                    if (string.IsNullOrEmpty(childTitle)) continue;
+                    sb.AppendLine($"  CHILD 0x{child.ToInt64():X} cls='{childCls}' text='{Truncate(childTitle, 80)}' vis={childVis}");
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        private static string Truncate(string s, int max) =>
+            s.Length <= max ? s : s.Substring(0, max) + "...";
+
+        private static bool AnyDirectChildHasText(IntPtr dialog, string textFragment)
+        {
+            foreach (IntPtr child in EnumerateDirectChildWindows(dialog))
+            {
+                string childText = GetTextSafe(child);
+                if (childText.Contains(textFragment, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
         private static IntPtr MakeWParam(int lowWord, int highWord)
         {
             long value = ((long)highWord << 16) | ((long)lowWord & 0xFFFF);
@@ -807,6 +1006,44 @@ namespace SheetCreationAutomation.Services
                     Marshal.FreeHGlobal(textBuffer);
                 }
             }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct KEYBDINPUT
+        {
+            public ushort wVk;
+            public ushort wScan;
+            public uint dwFlags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct HARDWAREINPUT
+        {
+            public uint uMsg;
+            public ushort wParamL;
+            public ushort wParamH;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MOUSEINPUT
+        {
+            public int dx;
+            public int dy;
+            public uint mouseData;
+            public uint dwFlags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct INPUT
+        {
+            [FieldOffset(0)] public uint type;
+            [FieldOffset(4)] public MOUSEINPUT mi;
+            [FieldOffset(4)] public KEYBDINPUT ki;
+            [FieldOffset(4)] public HARDWAREINPUT hi;
         }
 
         [StructLayout(LayoutKind.Sequential)]

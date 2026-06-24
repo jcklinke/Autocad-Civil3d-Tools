@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -668,6 +668,17 @@ namespace IntersectUtilities
     public static class BatchProcesses
     {
         [MethodDescription(
+            "Run AUDIT and save",
+            "Kører AUDIT og gemmer filen.")]
+        public static Result auditdwg(Database xDb)
+        {
+            Transaction xTx = xDb.TransactionManager.TopTransaction;
+
+            DatabaseExtension.Audit(xDb, true, true);
+
+            return new Result();
+        }
+        [MethodDescription(
             "Fix Ler2D plot styles",
             "Sætter alle lag fra angivet Ler 2D\n" +
             "xref til plotstyle Nedtonet 50%",
@@ -1078,6 +1089,23 @@ namespace IntersectUtilities
                     br.Erase();
                 }
             }
+
+            return new Result();
+        }
+        [MethodDescription(
+            "Delete ALL profiles",
+            "Sletter ALLE profiler.")]
+        public static Result deleteallprofiles(Database xDb)
+        {
+            //Used when sheets were created before pipe profiles were available
+            //Finds those profiles and creates a reference to them in drawing
+            //Then it deletes the detailing and recreates it
+            Transaction xTx = xDb.TransactionManager.TopTransaction;
+            var profs = xDb.HashSetOfType<Profile>(xTx);
+
+            foreach (Profile p in profs) { p.CheckOrOpenForWrite(); p.Erase(true); }
+
+            DatabaseExtension.Audit(xDb, true, true);
 
             return new Result();
         }
@@ -1518,14 +1546,25 @@ namespace IntersectUtilities
         {
             Transaction xTx = xDb.TransactionManager.TopTransaction;
 
+            LayerTable lt = xDb.LayerTableId.Go<LayerTable>(xTx);
+            HashSet<string> layerNames = new();
+
+            //Label layer
             HashSet<ProfileProjectionLabel> labels =
                         xDb.HashSetOfType<ProfileProjectionLabel>(xTx);
-            var layerNames = labels.Select(x => x.Layer).ToHashSet();
-            ObjectIdCollection oids = new ObjectIdCollection();
-            LayerTable lt = xDb.LayerTableId.Go<LayerTable>(xTx);
-            foreach (string name in layerNames) oids.Add(lt[name]);
+
+            layerNames.UnionWith(labels.Select(x => x.Layer));
+
+            //COGO points
+            List<CogoPoint> cogoPoints = xDb.ListOfType<CogoPoint>(xTx);
+            layerNames.UnionWith(cogoPoints.Select(x => x.Layer));
+
+            ObjectIdCollection layerOids = new ObjectIdCollection();
+
+            foreach (string name in layerNames) layerOids.Add(lt[name]);
+
             prdDbg($"Number of layers: {layerNames.Count}");
-            prdDbg($"Number of oids: {oids.Count}");
+            prdDbg($"Number of layer oids: {layerOids.Count}");            
 
             DBDictionary layoutDict = xDb.LayoutDictionaryId.Go<DBDictionary>(xTx);
             foreach (DBDictionaryEntry item in layoutDict)
@@ -1550,7 +1589,7 @@ namespace IntersectUtilities
                         {
                             prdDbg("Found minikort viewport!");
                             ObjectIdCollection notFrozenIds = new ObjectIdCollection();
-                            foreach (Oid oid in oids)
+                            foreach (Oid oid in layerOids)
                             {
                                 if (vp.IsLayerFrozenInViewport(oid)) continue;
                                 notFrozenIds.Add(oid);
@@ -2089,6 +2128,26 @@ namespace IntersectUtilities
                     item.Erase(true);
                 }
             }
+            return new Result();
+        }
+        [MethodDescription(
+            "Run FIXBROKENLABELS",
+            "Kører FIXBROKENLABELS i tegningen.\n" +
+            "Skal bruges når profile projection\n" +
+            "labels laver fejl.")]
+        public static Result runfixbrokenlabels(Database xDb)
+        {
+            Transaction xTx = xDb.TransactionManager.TopTransaction;
+
+            try
+            {
+                Intersect.fixbrokenlabelsmethod(xDb, xTx);
+            }
+            catch (System.Exception ex)
+            {
+                return new Result(ResultStatus.SoftError, ex.Message);                
+            }            
+            
             return new Result();
         }
     }

@@ -55,7 +55,7 @@ using Oid = Autodesk.AutoCAD.DatabaseServices.ObjectId;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using OpenMode = Autodesk.AutoCAD.DatabaseServices.OpenMode;
 
-[assembly: CommandClass(typeof(IntersectUtilities.Intersect))]
+[assembly: CommandClass(typeof(IntersectUtilities.NoCommands))]
 namespace IntersectUtilities
 {
     public partial class Intersect : IExtensionApplication
@@ -73,13 +73,36 @@ namespace IntersectUtilities
             prdDbg($" IntersectUtilites loaded!");
             prdDbg("(❁´◡`❁) (っ °Д °;)っ (●'◡'●)");
             prdDbg();
-#if DEBUG
-            AppDomain.CurrentDomain.AssemblyResolve +=
-                new ResolveEventHandler(EventHandlers.Debug_AssemblyResolve);
-#endif
         }
         public void Terminate()
         {
+            // Dispose every process-wide palette / per-document state on unload so nothing
+            // survives an unload→reload cycle (stale palettes, leaked handles, DocumentManager
+            // handlers firing into a no-longer-loaded module). Each reset is guarded so one
+            // failure can't abort the rest of teardown.
+            SafeReset("PipePlan state", IntersectUtilities.MPE.PipePlan.PipePlanRuntime.Reset);
+            SafeReset("PipePlanDE palettes", IntersectUtilities.MPE.PipePlanDE.PipePlanDERuntime.Reset);
+            SafeReset("NSCMD palette", IntersectUtilities.CmdUI.UI.NsCmdPaletteSet.Reset);
+            SafeReset("VejkantOffset palette", IntersectUtilities.FjernvarmeFremtidig.VejkantOffset.UI.Views.OffsetPaletteViewModelVisualizer.Reset);
+            SafeReset("LERCompareTerrain palette", LERCompareTerrainPaletteHost.Reset);
+            SafeReset("LERConnectNetwork palette", IntersectUtilities.MPE.Ler3DNetwork.LerConnectNetwork.LERConnectNetworkRuntime.Reset);
+            SafeReset("LerAnalyseNetwork palette", IntersectUtilities.MPE.Ler3DNetwork.LerAnalyseNetwork.LerAnalyseNetworkRuntime.Reset);
+            SafeReset("Alignment direction overlay", ResetAlignmentDirectionOverlay);
+            SafeReset("Properties palette", Dreambuild.AutoCAD.Gui.ResetPropertyPalette);
+        }
+
+        // Runs a teardown action, swallowing and logging any exception so a single failing
+        // disposal cannot abort the rest of Terminate().
+        private static void SafeReset(string what, System.Action reset)
+        {
+            try
+            {
+                reset();
+            }
+            catch (System.Exception ex)
+            {
+                prdDbg($"Warning: failed to dispose {what} on terminate: {ex.Message}");
+            }
         }
         #endregion
         private static CultureInfo danishCulture = new CultureInfo("da-DK");
@@ -410,7 +433,7 @@ namespace IntersectUtilities
                             idsToClone.Add(sourceBt["EL 10kV"]);
                             idsToClone.Add(sourceBt["EL 0.4kV"]);
                             idsToClone.Add(sourceBt["VerticeArc"]);
-                            idsToClone.Add(sourceBt["VerticeLine"]);                            
+                            idsToClone.Add(sourceBt["VerticeLine"]);
 
                             IdMapping mapping = new IdMapping();
                             stylesDB.WblockCloneObjects(idsToClone, destDbMsId, mapping, DuplicateRecordCloning.Replace, false);
@@ -453,7 +476,7 @@ namespace IntersectUtilities
             string pathToStyles = @"X:\AutoCAD DRI - 01 Civil 3D\Projection_styles.dwg";
             using var stylesDB = new Database(false, true);
             stylesDB.ReadDwgFile(pathToStyles, FileOpenMode.OpenForReadAndAllShare, false, null);
-            
+
             using (var localTx = localDb.TransactionManager.StartTransaction())
             using (var stylesTx = stylesDB.TransactionManager.StartTransaction())
             {
@@ -462,7 +485,7 @@ namespace IntersectUtilities
                     ObjectIdCollection objIds = new ObjectIdCollection();
 
                     TextStyleTable sourceTst = stylesDB.TextStyleTableId.Go<TextStyleTable>(stylesTx)!;
-                    objIds.Add(sourceTst["Note_Længdeprofiler"]);                    
+                    objIds.Add(sourceTst["Note_Længdeprofiler"]);
 
                     IdMapping mapping = new IdMapping();
                     stylesDB.WblockCloneObjects(objIds, localDb.TextStyleTableId, mapping, DuplicateRecordCloning.Replace, false);
@@ -960,7 +983,7 @@ namespace IntersectUtilities
                 }
                 tx.Commit();
             }
-        }        
+        }
 
         /// <command>SETMODELSPACESCALEFORALL</command>
         /// <summary>
@@ -1392,7 +1415,7 @@ namespace IntersectUtilities
                 }
                 tx.Commit();
             }
-        }        
+        }
 
         /// <command>PLACEOBJLAYCOLOR</command>
         /// <summary>
@@ -2238,7 +2261,7 @@ namespace IntersectUtilities
         {
             var krydsninger = Csv.Krydsninger;
             var lagLer = Csv.LagLer;
-            
+
             // Helper to strip -2D and -3D suffixes from layer names for LagLer lookup
             static string StripSuffix(string? layerName)
             {
@@ -2247,7 +2270,7 @@ namespace IntersectUtilities
                 if (layerName.EndsWith("-3D")) return layerName[..^3];
                 return layerName;
             }
-            
+
             using (Transaction tx = localDb.TransactionManager.StartTransaction())
             {
                 try
@@ -2262,7 +2285,7 @@ namespace IntersectUtilities
                     //Lookup linetype specification and link to layer name
                     Dictionary<string, string> layerLineTypeMap = new Dictionary<string, string>();
                     foreach (var layer in layers)
-                    {                        
+                    {
                         string lookupKey = StripSuffix(layer.Name);
                         string? lineTypeName = lagLer.LineType(lookupKey);
                         if (lineTypeName.IsNoE()) prdDbg($"LineTypeName is missing for {layer.Name}!");
@@ -2286,7 +2309,11 @@ namespace IntersectUtilities
                         LinetypeTable sourceLtt = (LinetypeTable)ltDb.TransactionManager.TopTransaction
                             .GetObject(ltDb.LinetypeTableId, OpenMode.ForRead);
                         ObjectIdCollection idsToClone = new ObjectIdCollection();
-                        foreach (string missingName in missingLineTypes) idsToClone.Add(sourceLtt[missingName]);
+                        foreach (string missingName in missingLineTypes)
+                        {
+                            if (sourceLtt.Has(missingName)) idsToClone.Add(sourceLtt[missingName]);
+                            else prdDbg($"Missing linetype {missingName} not found in Projection_styles.dwg!");
+                        }
                         IdMapping mapping = new IdMapping();
                         ltDb.WblockCloneObjects(idsToClone, destDbMsId, mapping, DuplicateRecordCloning.Replace, false);
                         ltTx.Commit();
@@ -2304,7 +2331,7 @@ namespace IntersectUtilities
                         }
                         string? type = krydsninger.Type(layerName);
                         if (type == "IGNORE") { prdDbg($"Layer {layerName} IGNORED!"); continue; }
-                        
+
                         string lookupKey = StripSuffix(layerName);
                         if (!lagLer.HasLayer(lookupKey))
                         {
@@ -3681,7 +3708,8 @@ namespace IntersectUtilities
             DocumentCollection docCol = Application.DocumentManager;
             Database localDb = docCol.MdiActiveDocument.Database;
 
-            var dro = new DataReferencesOptions();
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
 
             var result = StringGridFormCaller.Call(
                 ["Fremtid", "Alignments", "Surface", "Ler", "Længdeprofiler"], "What DWG to open?");
@@ -4988,28 +5016,7 @@ namespace IntersectUtilities
 
             try
             {
-                var labels = localDb.HashSetOfType<ProfileProjectionLabel>(tx);
-
-                var toDelete = new HashSet<ProfileProjectionLabel>();
-
-                foreach (var label in labels)
-                {
-                    try
-                    {
-                        var x = label.LabelLocation.X;
-                    }
-                    catch (System.Exception)
-                    {
-                        toDelete.Add(label);
-                        continue;
-                    }
-                }
-
-                foreach (var label in toDelete)
-                {
-                    label.UpgradeOpen();
-                    label.Erase(true);
-                }
+                fixbrokenlabelsmethod(localDb, tx);
             }
             catch (System.Exception ex)
             {
@@ -5021,11 +5028,40 @@ namespace IntersectUtilities
             tx.Commit();
         }
 
+        public static void fixbrokenlabelsmethod(Database db, Transaction tx)
+        {
+            var labels = db.HashSetOfType<ProfileProjectionLabel>(tx);
+
+            var toDelete = new HashSet<ProfileProjectionLabel>();
+
+            foreach (var label in labels)
+            {
+                try
+                {
+                    var x = label.LabelLocation.X;
+                }
+                catch (System.Exception)
+                {
+                    toDelete.Add(label);
+                    continue;
+                }
+            }
+
+            foreach (var label in toDelete)
+            {
+                label.UpgradeOpen();
+                label.Erase(true);
+            }
+        }
+
         /// <command>CHECKALLPOLYLINERADII</command>
         /// <summary>
         /// Gennemgår alle 2D-polylinjer i tegningen, eksploderer dem midlertidigt for at finde bue-segmenter,
         /// beregner hver arcs radius og udskriver den mindste bue-radius pr. lag i kommandolinjen.
         /// Tegningen forbliver uændret, da eksploderingen kun foregår i hukommelsen.
+        /// Efter rapporten kan man via en dropdown vælge en problematisk polylinje (markeres som ved SBH),
+        /// hvorefter kommandoen zoomer ind på den for stramme bøjning; har polylinjen flere problematiske
+        /// bøjninger, vises en ekstra dropdown til at gennemgå dem enkeltvis.
         /// </summary>
         /// <category>Utilities</category>
 
@@ -5035,6 +5071,11 @@ namespace IntersectUtilities
             DocumentCollection docCol = Application.DocumentManager;
             Database localDb = docCol.MdiActiveDocument.Database;
 
+            // Remember the last zoom target so it can be re-applied after the transaction
+            // is aborted. The in-loop zooms run inside this transaction (nested) and would
+            // otherwise be rolled back, snapping the view back to where the command started.
+            Extents3d? finalView = null;
+
             using Transaction tx = localDb.TransactionManager.StartTransaction();
 
             try
@@ -5042,7 +5083,7 @@ namespace IntersectUtilities
                 //Get all polylines
                 var pls = localDb.GetFjvPipes(tx);
 
-                var arcsWithRadius = new List<(string layer, double radius, Polyline originalPl)>();
+                var arcsWithRadius = new List<(string layer, double radius, Polyline originalPl, Extents3d ext)>();
 
                 foreach (var p in pls)
                 {
@@ -5053,7 +5094,15 @@ namespace IntersectUtilities
                     {
                         if (obj is Arc arc)
                         {
-                            arcsWithRadius.Add((p.Layer, arc.Radius, p));
+                            // Capture the bend's extents now; the exploded Arc is transient and disposed below.
+                            Extents3d ext;
+                            try { ext = arc.GeometricExtents; }
+                            catch
+                            {
+                                var r = new Vector3d(arc.Radius, arc.Radius, 0);
+                                ext = new Extents3d(arc.Center - r, arc.Center + r);
+                            }
+                            arcsWithRadius.Add((p.Layer, arc.Radius, p, ext));
                         }
 
                         obj.Dispose();
@@ -5086,19 +5135,174 @@ namespace IntersectUtilities
                     {
                         gp.Key,     // Layer
                         fr.ToString("#.0"),         // FR (Faktisk radius)
-                        tr,         // TR (Tilladt radius)
+                        tr.ToString("#.0"),         // TR (Tilladt radius)
                         status,     // Status
                         handles     // Handles (if any)
                     };
                 });
 
-                prdDbg("Arc radius analysis:");
+                prdDbg("Analyse af bue-radier:");
                 prdDbg("FR = Faktisk min. radius");
                 prdDbg("TR = Tilladt min. radius");
 
-                string[] hdrs = ["Layer", "FR", "TR", "Status", "Handles"];
+                string[] hdrs = ["Lag", "FR", "TR", "Status", "Handles"];
 
                 PrintTable(hdrs, rows);
+
+                // ---- Interactive inspection of problematic bends ----
+                var ed = docCol.MdiActiveDocument.Editor;
+
+                // Allowed radius per layer, computed once and reused for the violation test.
+                var trByLayer = arcsWithRadius
+                    .Select(x => x.layer)
+                    .Distinct()
+                    .ToDictionary(
+                        l => l,
+                        l => GetPipeMinElasticRadiusHorizontalCharacteristic(
+                            GetPipeSystem(l), GetPipeDN(l), GetPipeType(l), false));
+
+                // One entry per polyline that has at least one too-tight bend, with the
+                // offending bends pre-sorted (tightest first) and their extents kept for zooming.
+                var problematic = arcsWithRadius
+                    .Where(x => x.radius < trByLayer[x.layer])
+                    .GroupBy(x => x.originalPl.Handle)
+                    .Select(g => new
+                    {
+                        Pl = g.First().originalPl,
+                        Layer = g.First().layer,
+                        Tr = trByLayer[g.First().layer],
+                        Bends = g.OrderBy(x => x.radius)
+                                 .Select(x => (x.radius, x.ext))
+                                 .ToList()
+                    })
+                    .OrderBy(x => GetPipeSystem(x.Layer))
+                    .ThenBy(x => GetPipeDN(x.Layer))
+                    .ToList();
+
+                if (problematic.Count == 0)
+                {
+                    prdDbg("\nIngen polylinjer overtræder den tilladte bøjningsradius — intet at inspicere.");
+                    tx.Abort();
+                    return;
+                }
+
+                // Legend with the per-polyline detail that won't fit in the dropdown's option labels.
+                string[] legendHdrs = ["Handle", "Lag", "Bøjninger", "MinR", "TilladtR"];
+                var legendRows = problematic.Select(p => new object[]
+                {
+                    p.Pl.Handle.ToString(),
+                    p.Layer,
+                    p.Bends.Count.ToString(),
+                    p.Bends.Min(b => b.radius).ToString("#.0"),
+                    p.Tr.ToString("#.0")
+                });
+                PrintTable(legendHdrs, legendRows);
+
+                // Map handle -> entry so the chosen keyword resolves back to its polyline.
+                var byHandle = problematic.ToDictionary(
+                    p => p.Pl.Handle.ToString(), StringComparer.OrdinalIgnoreCase);
+
+                // Zoom to an extent with padding (factor of the larger side) so it doesn't fill the viewport edge-to-edge.
+                void ZoomPadded(Extents3d e, double factor)
+                {
+                    double dx = e.MaxPoint.X - e.MinPoint.X;
+                    double dy = e.MaxPoint.Y - e.MinPoint.Y;
+                    double pad = Math.Max(Math.Max(dx, dy), 1.0) * factor;
+                    var view = new Extents3d(
+                        new Point3d(e.MinPoint.X - pad, e.MinPoint.Y - pad, 0),
+                        new Point3d(e.MaxPoint.X + pad, e.MaxPoint.Y + pad, 0));
+                    finalView = view;
+                    Interaction.ZoomView(view);
+                }
+
+                var doc = docCol.MdiActiveDocument;
+                var highlighted = new List<ObjectId>();
+                using var markers = new BendRadiusLabelMarkerManager();
+                try
+                {
+                    while (true)
+                    {
+                        // Drop any labels from the previously inspected polyline before re-prompting.
+                        markers.Clear();
+
+                        var plOpts = new PromptKeywordOptions("\nVælg problematisk polylinje at inspicere:")
+                        {
+                            AllowNone = true
+                        };
+                        // Use the handle itself as the keyword so the user can type or click it.
+                        foreach (var p in problematic)
+                            plOpts.Keywords.Add(p.Pl.Handle.ToString());
+                        plOpts.Keywords.Add("Exit");
+                        plOpts.Keywords.Default = "Exit";
+
+                        var plRes = ed.GetKeywords(plOpts);
+                        if (plRes.Status != PromptStatus.OK || plRes.StringResult == "Exit")
+                            break;
+
+                        var sel = byHandle[plRes.StringResult];
+
+                        // Select + highlight the chosen polyline (mirrors the SBH workflow).
+                        // Guard: the shared helper throws on an empty collection.
+                        if (highlighted.Count > 0) Interaction.UnhighlightObjects(highlighted);
+                        highlighted = new List<ObjectId> { sel.Pl.ObjectId };
+                        ed.SetImpliedSelection(highlighted.ToArray());
+                        Interaction.HighlightObjects(highlighted);
+
+                        // Label positions: the centre of each bend's extents.
+                        var bendLabels = sel.Bends
+                            .Select((b, i) => ($"B{i + 1}", new Point3d(
+                                (b.ext.MinPoint.X + b.ext.MaxPoint.X) / 2.0,
+                                (b.ext.MinPoint.Y + b.ext.MaxPoint.Y) / 2.0,
+                                0.0)))
+                            .ToList();
+
+                        // Zoom til hele polylinjen først, for kontekst.
+                        prdDbg($"\nHandle {sel.Pl.Handle}: {sel.Bends.Count} problematisk(e) bøjning(er), " +
+                               $"strammeste {sel.Bends.Min(b => b.radius):#.0} (tilladt {sel.Tr:#.0}).");
+                        ZoomPadded(sel.Pl.GeometricExtents, 0.1);
+                        markers.Show(doc, bendLabels);
+
+                        // Gennemgå de enkelte problematiske bøjninger.
+                        bool exitCommand = false;
+                        string lastBend = "B1";
+                        while (true)
+                        {
+                            var bOpts = new PromptKeywordOptions(
+                                $"\nVælg bøjning på {sel.Pl.Handle} at zoome til (Back = polylinjeliste, Exit = afslut):")
+                            {
+                                AllowNone = true
+                            };
+                            for (int j = 0; j < sel.Bends.Count; j++)
+                                bOpts.Keywords.Add($"B{j + 1}");
+                            bOpts.Keywords.Add("Back");
+                            bOpts.Keywords.Add("Exit");
+                            // Behold markeringen på den senest valgte bøjning i stedet for at hoppe til Back.
+                            bOpts.Keywords.Default = lastBend;
+
+                            var bRes = ed.GetKeywords(bOpts);
+                            if (bRes.Status != PromptStatus.OK || bRes.StringResult == "Back")
+                                break;
+                            if (bRes.StringResult == "Exit")
+                            {
+                                exitCommand = true;
+                                break;
+                            }
+
+                            int bIdx = int.Parse(bRes.StringResult.Substring(1)) - 1;
+                            lastBend = $"B{bIdx + 1}";
+                            prdDbg($"Bøjning B{bIdx + 1}: radius {sel.Bends[bIdx].radius:#.0} (tilladt {sel.Tr:#.0}).");
+                            ZoomPadded(sel.Bends[bIdx].ext, 1.0);
+                            markers.Show(doc, bendLabels);
+                        }
+
+                        if (exitCommand)
+                            break;
+                    }
+                }
+                finally
+                {
+                    if (highlighted.Count > 0) Interaction.UnhighlightObjects(highlighted);
+                }
             }
             catch (System.Exception ex)
             {
@@ -5107,6 +5311,11 @@ namespace IntersectUtilities
                 return;
             }
             tx.Abort();
+
+            // Re-apply the last zoom now the transaction is closed, so it sticks instead
+            // of reverting to the view the command started from.
+            if (finalView.HasValue)
+                Interaction.ZoomView(finalView.Value);
         }
 
         /// <command>CENTERVIEWFRAMENUMBER</command>
@@ -5698,4 +5907,6 @@ namespace IntersectUtilities
         }
 
     }
+
+    public class NoCommands { }
 }

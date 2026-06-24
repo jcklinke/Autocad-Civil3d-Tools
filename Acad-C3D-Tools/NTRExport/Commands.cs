@@ -39,11 +39,7 @@ namespace NTRExport
         public void Initialize()
         {
             Document doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nVelkommen til NTR Export!\n");
-#if DEBUG
-            AppDomain.CurrentDomain.AssemblyResolve +=
-        new ResolveEventHandler(MissingAssemblyLoader.Debug_AssemblyResolve);
-#endif
+            doc.Editor.WriteMessage("\nʕ•ᴥ•ʔ Velkommen til NTR Export! ʕ•ᴥ•ʔ\n");
         }
 
         public void Terminate()
@@ -58,7 +54,9 @@ namespace NTRExport
             DocumentCollection docCol = AcApp.DocumentManager;
             Database localDb = docCol.MdiActiveDocument.Database;
 
-            DataManager dm = new(new DataReferencesOptions());
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
+            DataManager dm = new(dro);
 
             using var fDb = dm.Fremtid();
             using var fTx = fDb.TransactionManager.StartTransaction();

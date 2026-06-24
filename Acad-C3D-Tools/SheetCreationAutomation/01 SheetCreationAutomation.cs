@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -36,6 +36,8 @@ using Application = Autodesk.AutoCAD.ApplicationServices.Application;
 using Label = Autodesk.Civil.DatabaseServices.Label;
 using Microsoft.Win32;
 
+[assembly: CommandClass(typeof(SheetCreationAutomation.NoCommands))]
+
 namespace SheetCreationAutomation
 {
     public class Commands : IExtensionApplication
@@ -46,16 +48,22 @@ namespace SheetCreationAutomation
         public void Initialize()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nLoaded Sheet Creation Automation commands.");
-
-#if DEBUG
-            AppDomain.CurrentDomain.AssemblyResolve +=
-        new ResolveEventHandler(Debug.MissingAssemblyLoader.Debug_AssemblyResolveV2);
-#endif
+            doc.Editor.WriteMessage("\n♪(´▽`) SheetCreationAutomation loaded! (´▽`)♪\n");
         }
 
         public void Terminate()
         {
+            // Dispose the cached palette so it doesn't survive an unload/reload cycle.
+            if (_paletteSet != null)
+            {
+                try
+                {
+                    _paletteSet.Visible = false;
+                    _paletteSet.Dispose();
+                }
+                catch { }
+                _paletteSet = null;
+            }
         }
         #endregion
 
@@ -167,6 +175,10 @@ namespace SheetCreationAutomation
                     HashSet<ViewFrame> vfs = localDb.HashSetOfType<ViewFrame>(tx);
                     prdDbg($"Number of VFs: {{{vfs.Count}}}");
 
+                    var path = Environment.ExpandEnvironmentVariables("%temp%");
+                    string fileName = path + "\\vfCount.txt";
+                    File.WriteAllText(fileName, vfs.Count.ToString());
+
                     System.Windows.Forms.Application.DoEvents();
 
                     #endregion
@@ -174,7 +186,7 @@ namespace SheetCreationAutomation
                 catch (System.Exception ex)
                 {
                     tx.Abort();
-                    editor.WriteMessage("\n" + ex.Message);
+                    editor.WriteMessage("\n" + ex.ToString());
                     return;
                 }
                 finally
@@ -298,4 +310,6 @@ namespace SheetCreationAutomation
             }
         }
     }
+
+    public class NoCommands { }
 }

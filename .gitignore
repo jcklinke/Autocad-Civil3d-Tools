@@ -16,6 +16,9 @@
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
+# Bundle deploy output
+Deploy/
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
@@ -337,3 +340,9 @@ ASALocalRun/
 /nul
 /.dotnet/TelemetryStorageService
 /.dotnet
+/.claude/worktrees
+/Microsoft/Windows/PowerShell
+
+# Git worktrees
+.worktrees/
+docs/plans/

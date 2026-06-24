@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Linq;
@@ -517,10 +517,29 @@ namespace IntersectUtilities
                 foreach (var row in fk.Rows)
                 {
                     var type = FjvDynamicComponents.Col(row, FjvDynamicComponents.Columns.Type);
-                    if (!string.IsNullOrEmpty(type) && !PipelineElementTypeDict.ContainsKey(type))
-                        missing.Add(type);
+                    if (!string.IsNullOrEmpty(type) && 
+                        !PipelineElementTypeDict.ContainsKey(type)) 
+                        missing.Add($"{br.RealName()} - " + type);
                 }
 
+                if (br.Database.TransactionManager.TopTransaction == null)
+                    prdDbg("No active transaction found! Cannot read block table record for debugging!");
+                else
+                {
+                    var btr = br.BlockTableRecord.Go<BlockTableRecord>(br.Database.TransactionManager.TopTransaction);
+
+                    if (btr.IsFromExternalReference)
+                    {
+                        throw new Exception(
+                            $"\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n" +
+                            $"Block {br.RealName()} is from an external reference!\n" +
+                            $"Remove pipeline assignment from this xref (in FJVFremtid)!\n" +
+                            $"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+                    }
+                }                
+
+                prdDbg("These blocks do not provide correct PipelineElementType:");
+                prdDbg(br.RealName());
                 prdDbg(string.Join("\n", missing.OrderBy(x => x)));
 
                 throw new Exception($"PipelineType {typeString} not found in dictionary!\n" +

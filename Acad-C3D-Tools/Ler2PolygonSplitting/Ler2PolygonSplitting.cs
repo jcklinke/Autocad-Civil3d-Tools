@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.ApplicationServices.Core;
@@ -23,6 +23,8 @@ using Autodesk.AutoCAD.Colors;
 using static Ler2PolygonSplitting.Utils;
 using IntersectUtilities;
 
+[assembly: CommandClass(typeof(Ler2PolygonSplitting.NoCommands))]
+
 namespace Ler2PolygonSplitting
 {
     public partial class Ler2PolygonSplitting : IExtensionApplication
@@ -37,12 +39,7 @@ namespace Ler2PolygonSplitting
                     "AcMPolygonObj" + Application.Version.Major + ".dbx", false, false);
             }
 
-#if DEBUG
-            AppDomain.CurrentDomain.AssemblyResolve +=
-                new ResolveEventHandler(Debug_AssemblyResolve);
-#endif
-
-            prdDbg("Ler2PolygonSplitting loaded!\n");
+            doc.Editor.WriteMessage("\n⊂(◉‿◉)つ Ler2PolygonSplitting loaded! ⊂(◉‿◉)つ\n");
         }
 
         public void Terminate()
@@ -631,42 +628,7 @@ namespace Ler2PolygonSplitting
                 tx.Commit();
             }
         }
-#if DEBUG
-        private static Assembly Debug_AssemblyResolve(object sender, ResolveEventArgs args)
-        {
-            string assemblyFolder = @"X:\Github\shtirlitsDva\Autocad-Civil3d-Tools\Acad-C3D-Tools\Ler2PolygonSplitting\bin\Debug";
-            prdDbg($"Asked for assembly: {args.Name}!");
-
-            var name = args.Name.Split(',')[0];
-
-            switch (name)
-            {
-                case "QuikGraph":
-                    {
-                        string filePath = Path.Combine(assemblyFolder, "QuikGraph.dll");
-                        return Assembly.LoadFrom(filePath);
-                    }
-                case "QuikGraph.Graphviz":
-                    {
-                        string filePath = Path.Combine(assemblyFolder, "QuikGraph.Graphviz.dll");
-                        return Assembly.LoadFrom(filePath);
-                    }
-                case "NetTopologySuite":
-                    {
-                        string filePath = Path.Combine(assemblyFolder, "NetTopologySuite.dll");
-                        return Assembly.LoadFrom(filePath);
-                    }
-                case "Accord.MachineLearning":
-                    {
-                        string filePath = Path.Combine(assemblyFolder, "Accord.MachineLearning.dll");
-                        return Assembly.LoadFrom(filePath);
-                    }
-                default:
-                    break;
-            }
-
-            return null;
-        }
-#endif
     }
+
+    public class NoCommands { }
 }

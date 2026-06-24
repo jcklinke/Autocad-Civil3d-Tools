@@ -5,7 +5,7 @@
 		<GenerateAssemblyInfo>True</GenerateAssemblyInfo>
 		<UseWindowsForms>true</UseWindowsForms>
 		<UseWPF>true</UseWPF>
-		<ImportWindowsDesktopTargets>true</ImportWindowsDesktopTargets>
+		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<PlatformTarget>x64</PlatformTarget>
 		<Platforms>x64</Platforms>
@@ -37,21 +37,7 @@
 	</PropertyGroup>
 	<ItemGroup>
 	  <None Remove="IntersectUtilities.dll.config" />
-	</ItemGroup>
-	<ItemGroup>
-	  <Page Remove="FjernvarmeFremtidig\VejkantOffset\UI\Resources\DarkTheme.xaml" />
-	</ItemGroup>
-	<ItemGroup>
-	  <COMReference Include="Microsoft.Office.Interop.Excel">
-	    <WrapperTool>tlbimp</WrapperTool>
-	    <VersionMinor>9</VersionMinor>
-	    <VersionMajor>1</VersionMajor>
-	    <Guid>00020813-0000-0000-c000-000000000046</Guid>
-	    <Lcid>0</Lcid>
-	    <Isolated>false</Isolated>
-	    <EmbedInteropTypes>true</EmbedInteropTypes>
-	  </COMReference>
-	</ItemGroup>
+	</ItemGroup>	
 	<ItemGroup>
 		<Reference Include="accoremgd">
 			<HintPath>C:\Program Files\Autodesk\AutoCAD 2025\accoremgd.dll</HintPath>
@@ -107,6 +93,7 @@
 		</Reference>
 		<Reference Include="AecArchMgd">
 		  <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\ACA\AecArchMgd.dll</HintPath>
+		  <Private>False</Private>
 		</Reference>
 		<Reference Include="AecBaseMgd">
 		  <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\ACA\AecBaseMgd.dll</HintPath>
@@ -131,6 +118,13 @@
 			<HintPath>C:\Program Files\Autodesk\AutoCAD 2025\Map\ManagedMapApi.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
+		<!-- NorsynProjectionProfileLabel (NPPL) managed wrapper, from NorsynDrawingTools.
+		     Compile-time only: the live instance is the one loaded in-process by the
+		     NorsynObjectsManaged runtime (registry demand-load). Never copy. -->
+		<Reference Include="NorsynObjectsInterop">
+			<HintPath>..\..\..\..\DamgaardRI\NorsynDrawingTools\x64\Debug\NorsynObjectsInterop.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
 	</ItemGroup>
 	<ItemGroup>
 		<Content Include="DebugCommandLineAttribute.txt" />
@@ -142,6 +136,8 @@
 	<ItemGroup>
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
 		<PackageReference Include="Fluid.Core" Version="2.11.1" />
+		<PackageReference Include="Google.OrTools" Version="9.15.6755" />
+
 		<PackageReference Include="CsvHelper" Version="33.0.1" />
 		<PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
 		<PackageReference Include="Microsoft.VisualBasic" Version="10.3.0" />
@@ -165,13 +161,29 @@
 	  <Resource Include="FjernvarmeFremtidig\VejkantOffset\UI\Resources\DarkTheme.xaml" />
 	</ItemGroup>
 	<ItemGroup>
-	  <Page Include="..\DimensioneringV2\UI\Theme.xaml" Link="CmdUI\UI\Theme.xaml">
+	  <Page Remove="MPE\PipePlan\Views\DarkTheme.xaml" />
+	  <EmbeddedResource Include="MPE\PipePlan\Views\DarkTheme.xaml">
+	    <LogicalName>IntersectUtilities.MPE.PipePlan.DarkTheme.xaml</LogicalName>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="MPE\PipePlanDE\Views\RegelGrabenprofil.png">
+	    <LogicalName>IntersectUtilities.MPE.PipePlanDE.RegelGrabenprofil.png</LogicalName>
+	  </EmbeddedResource>
+	</ItemGroup>
+	<ItemGroup Condition="Exists('..\..\..\..\DamgaardRI\DimensioneringV2\src\DimensioneringV2.UI\UI\Theme.xaml')">
+	  <Page Include="..\..\..\..\DamgaardRI\DimensioneringV2\src\DimensioneringV2.UI\UI\Theme.xaml" Link="CmdUI\UI\Theme.xaml">
 	    <Generator>MSBuild:Compile</Generator>
 	  </Page>
 	</ItemGroup>
+	<ItemGroup Condition="Exists('..\..\..\..\DamgaardRI\DimensioneringV2\src\DimensioneringV2.UI\UI\DarkTitleBarHelper.cs')">
+	  <Compile Include="..\..\..\..\DamgaardRI\DimensioneringV2\src\DimensioneringV2.UI\UI\DarkTitleBarHelper.cs" Link="CmdUI\UI\DarkTitleBarHelper.cs" />
+	</ItemGroup>
 	<ItemGroup>
 	  <EmbeddedResource Include="DataScience\MergeReportStyles.css" />
-	</ItemGroup>	
+	</ItemGroup>
+	<ItemGroup>
+	  <Using Remove="System.Drawing" />
+	  <Using Remove="System.Windows.Forms" />
+	</ItemGroup>
 	<Import Project="..\UtilitiesCommonSHARED\UtilitiesCommonSHARED.projitems" Label="Shared" />
 	<Import Project="..\AutoCADCommandsSHARED\AutoCADCommandsSHARED.projitems" Label="Shared" />
 	<Import Project="..\FormsSHARED\FormsSHARED.projitems" Label="Shared" />

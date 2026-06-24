@@ -22,6 +22,8 @@ using static IntersectUtilities.UtilsCommon.Utils;
 using Application = Autodesk.AutoCAD.ApplicationServices.Application;
 using Log = LERImporter.SimpleLogger;
 
+[assembly: CommandClass(typeof(LERImporter.NoCommands))]
+
 namespace LERImporter
 {
     public class LerImporter : IExtensionApplication
@@ -30,7 +32,7 @@ namespace LERImporter
         public void Initialize()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
-            doc.Editor.WriteMessage("\nLER Import Application indlæst.");
+            doc.Editor.WriteMessage("\n┗(•ˇ_ˇ•)―→ LER Import Application indlæst! ←(•ˇ_ˇ•)┛");
             doc.Editor.WriteMessage("\nKommando til LER 2.0 -> IGMLBATCH.");
 
             if (doc != null)
@@ -159,8 +161,6 @@ namespace LERImporter
                             catch (System.Exception ex)
                             {
                                 Log.log(ex.ToString());
-                                ler3dTx.Abort();
-                                ler3dDb.Dispose();
                                 throw;
                             }
 
@@ -191,8 +191,6 @@ namespace LERImporter
                         catch (System.Exception ex)
                         {
                             Log.log(ex.ToString());
-                            ler2dTx.Abort();
-                            ler2dDb.Dispose();
                             throw;
                         }
 
@@ -225,4 +223,6 @@ namespace LERImporter
             if (EchoToEditor) prdDbg(msg);
         }
     }
+
+    public class NoCommands { }
 }

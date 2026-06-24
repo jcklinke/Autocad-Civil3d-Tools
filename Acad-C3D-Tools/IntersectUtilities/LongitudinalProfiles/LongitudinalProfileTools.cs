@@ -28,11 +28,8 @@ using IntersectUtilities.UtilsCommon.Graphs;
 
 using MoreLinq;
 
-using System;
-using System.Collections.Generic;
 using System.Data;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -41,7 +38,6 @@ using static IntersectUtilities.HelperMethods;
 using static IntersectUtilities.PipeScheduleV2.PipeScheduleV2;
 using static IntersectUtilities.Utils;
 using static IntersectUtilities.UtilsCommon.Utils;
-using static IntersectUtilities.UtilsCommon.UtilsDataTables;
 
 using Application = Autodesk.AutoCAD.ApplicationServices.Application;
 using Assembly = System.Reflection.Assembly;
@@ -54,6 +50,7 @@ using Label = Autodesk.Civil.DatabaseServices.Label;
 using ObjectIdCollection = Autodesk.AutoCAD.DatabaseServices.ObjectIdCollection;
 using Oid = Autodesk.AutoCAD.DatabaseServices.ObjectId;
 using OpenMode = Autodesk.AutoCAD.DatabaseServices.OpenMode;
+using Npp = NorsynObjectsInterop.NorsynProjectionProfileLabel;
 
 namespace IntersectUtilities
 {
@@ -274,14 +271,15 @@ namespace IntersectUtilities
             DocumentCollection docCol = Application.DocumentManager;
             Database db = docCol.MdiActiveDocument.Database;
 
-            DataReferencesOptions dro = new DataReferencesOptions();
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
             var dm = new DataManager(dro);
 
             using Database xRefSurfaceDB = dm.Surface();
             prdDbg(xRefSurfaceDB.Filename);
             using Transaction xRefSurfaceTx = xRefSurfaceDB.TransactionManager.StartTransaction();
 
-            using Transaction tx = db.TransactionManager.StartTransaction();            
+            using Transaction tx = db.TransactionManager.StartTransaction();
             var allAlignments = db.ListOfType<Alignment>(tx).OrderBy(x => x.Name).ToList();
 
             try
@@ -325,7 +323,8 @@ namespace IntersectUtilities
             using (Transaction tx = db.TransactionManager.StartTransaction())
             {
                 if (dro == null)
-                    dro = new DataReferencesOptions();
+                    dro = DataReferencesOptions.Create();
+                if (dro == null) return;
 
                 string projectName = dro.ProjectName;
                 string etapeName = dro.EtapeName;
@@ -548,7 +547,8 @@ namespace IntersectUtilities
         [CommandMethod("CREATELERDATAPSS")]
         public void createlerdatapss()
         {
-            DataReferencesOptions dro = new DataReferencesOptions();
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
             DataManager dm = new(dro);
             using var surfaceDb = dm.Surface();
             using Transaction surfaceTx = surfaceDb.TransactionManager.StartTransaction();
@@ -734,8 +734,7 @@ namespace IntersectUtilities
                     #region Create Points, assign elevation, layer and PS data
                     foreach (Entity ent in sourceEnts)
                     {
-                        if (!(ent is Curve))
-                            continue;
+                        if (!(ent is Curve)) continue;
 
                         #region Read data parameters from csvs
                         //Read 'Type' value
@@ -982,8 +981,13 @@ namespace IntersectUtilities
                         x.PointNumber.ToString()
                     );
 
+                    // Civil 3D parses IncludeNumbers using the Windows regional list separator
+                    // (HKCU\Control Panel\International\sList); TextInfo.ListSeparator reads that.
+                    // Fall back to the other common separator only if the deterministic pick is rejected.
+                    string localeSeparator = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ListSeparator;
+                    string[] separators = new[] { localeSeparator, ";", "," }.Distinct().ToArray();
+
                     bool success = false;
-                    string[] separators = [";", ","];
                     for (int i = 0; i < separators.Length; i++)
                     {
                         if (success)
@@ -998,16 +1002,24 @@ namespace IntersectUtilities
                             currentPointGroup.Update();
                             success = true;
                         }
-                        catch (System.Exception)
+                        catch (PointGroupQueryOperationFailedException)
                         {
-                            prdDbg($"Failed to set query with separator \"{cur}\"!");
-                            //Ignore exception
-                            //Try again with another separator
+                            prdDbg(
+                                $"Failed to set query with separator \"{cur}\"!\n" +
+                                $"Culture: {System.Globalization.CultureInfo.CurrentCulture.Name},\n" +
+                                $"TextInfo.ListSeparator: \"{localeSeparator}\"\n");
+                            //Civil 3D's parser rejected the syntax — try the next separator
                         }
                     }
 
                     if (!success)
-                        throw new System.Exception("Could not set query for PointGroup!");
+                        throw new System.Exception(
+                            $"Could not set query for PointGroup! " +
+                            $"Culture: {System.Globalization.CultureInfo.CurrentCulture.Name}, " +
+                            $"TextInfo.ListSeparator: \"{localeSeparator}\", " +
+                            $"Tried separators: [{string.Join(", ", separators.Select(s => $"\"{s}\""))}], " +
+                            $"Point count: {allNewlyCreatedPoints.Count}, " +
+                            $"PointGroup: \"{currentPointGroup.Name}\".");
                     #endregion
 
                     #region Assign newly created points to projection on a profile view
@@ -1265,7 +1277,8 @@ namespace IntersectUtilities
         [CommandMethod("POPULATEPROFILES")]
         public void populateprofiles()
         {
-            DataReferencesOptions dro = new DataReferencesOptions();
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
             populateprofilesmethod(dro);
         }
 
@@ -1554,7 +1567,8 @@ namespace IntersectUtilities
             {
                 #region Open fremtidig db and get entities
                 if (dro == null)
-                    dro = new DataReferencesOptions();
+                    dro = DataReferencesOptions.Create();
+                if (dro == null) return;
 
                 var dm = new DataManager(dro);
 
@@ -1996,7 +2010,8 @@ namespace IntersectUtilities
                 .CivilApplication
                 .ActiveDocument;
 
-            DataReferencesOptions dro = dataReferencesOptions ?? new DataReferencesOptions();
+            var dro = dataReferencesOptions ?? DataReferencesOptions.Create();
+            if (dro == null) return;
             var dm = new DataManager(dro);
 
             var fjvComponents = Csv.FjvDynamicComponents;
@@ -2127,8 +2142,13 @@ namespace IntersectUtilities
                                     x,
                                     driPipelineData.BelongsToAlignment,
                                     al.Name
-                                )
-                            )
+                                ))
+                                .Where(x =>
+                                {
+                                    var btr = x.BlockTableRecord.Go<BlockTableRecord>(fremTx);
+                                    if (btr.IsFromExternalReference) return false;
+                                    else return true;
+                                })
                             .ToHashSet();
 
                         HashSet<BlockReference> afgreningsStudse = allBrs
@@ -2141,6 +2161,7 @@ namespace IntersectUtilities
                                 && (
                                     x.RealName() == "AFGRSTUDS"
                                     || x.RealName() == "SH LIGE"
+                                    || x.RealName() == "SH VINKLET"
                                     || x.RealName() == "STIKAFGRENING"
                                 )
                             )
@@ -2354,7 +2375,7 @@ namespace IntersectUtilities
                             {
                                 var detailingContext = new BlockDetailingContext(
                                     dB,
-                                    tx,
+                                    fremTx,
                                     al,
                                     alPl,
                                     surfaceProfile,
@@ -2614,7 +2635,8 @@ namespace IntersectUtilities
             using (Transaction tx = dB.TransactionManager.StartTransaction())
             {
                 #region Open fremtidig db
-                DataReferencesOptions dro = dataReferencesOptions ?? new DataReferencesOptions();
+                var dro = dataReferencesOptions ?? DataReferencesOptions.Create();
+                if (dro == null) return;
                 var dm = new DataManager(dro);
 
                 // open the xref database
@@ -2793,6 +2815,7 @@ namespace IntersectUtilities
                                 && (
                                     x.RealName() == "AFGRSTUDS"
                                     || x.RealName() == "SH LIGE"
+                                    || x.RealName() == "SH VINKLET"
                                     || x.RealName() == "STIKAFGRENING"
                                 )
                             )
@@ -3170,9 +3193,9 @@ namespace IntersectUtilities
                                 if (br.RealName() != "BUEROR1" && br.RealName() != "BUEROR2")
                                     continue;
                                 string? type = fjvKomponenter.Type(br.RealName());
-                                string augmentedType = ComponentSchedule.ReadComponentType(
+                                string augmentedType = ComponentSchedule.ReadDynamicCsvProperty(
                                     br,
-                                    fjvKomponenter
+                                    UtilsCommon.Enums.DynamicProperty.Type
                                 );
 
                                 //The idea is to get the muffer at ends
@@ -3821,9 +3844,8 @@ namespace IntersectUtilities
                 #endregion
 
                 #region Open fremtidig db
-                DataReferencesOptions dro = dataReferencesOptions;
-                if (dro == null)
-                    dro = new DataReferencesOptions();
+                var dro = dataReferencesOptions ?? DataReferencesOptions.Create();
+                if (dro == null) return;
                 var dm = new DataManager(dro);
 
                 //open the xref database
@@ -4313,7 +4335,8 @@ namespace IntersectUtilities
 
             using (Transaction tx = localDb.TransactionManager.StartTransaction())
             {
-                DataReferencesOptions dro = new DataReferencesOptions();
+                var dro = DataReferencesOptions.Create();
+                if (dro == null) return;
 
                 HashSet<Profile> pvs = localDb.HashSetOfType<Profile>(tx);
                 foreach (Profile profile in pvs.OrderBy(x => x.Name))
@@ -4939,9 +4962,19 @@ namespace IntersectUtilities
 
                     #region Labels
                     Extents3d extents = default;
-                    var labelsInView = labelsSet.Where(x =>
-                        extents.IsPointInsideXY(x.LabelLocation)
-                    );
+
+                    IEnumerable<ProfileProjectionLabel> labelsInView;
+
+                    try
+                    {
+                        labelsInView = labelsSet.Where(
+                            x => extents.IsPointInsideXY(x.LabelLocation));
+                    }
+                    catch (System.Exception ex)
+                    {
+                        
+                        throw;
+                    }                   
 
                     Oid rightStyleId = profileProjection_RIGHT_Style;
                     Oid leftStyleId = profileProjection_LEFT_Style;
@@ -5084,6 +5117,283 @@ namespace IntersectUtilities
                 tx.Commit();
             }
         }
+
+        #region NDHPPLREPLACE — replace Civil ProfileProjectionLabels with NPPLs
+        // The de-cluttering placement of NPPLs (NorsynProjectionProfileLabel) lives
+        // here as user-driven "manipulation" code; the always-loaded machinery
+        // (object factories + live refresh) lives in the NorsynObjectsManaged runtime
+        // in the NorsynDrawingTools repo. This command reads Civil (which the native
+        // C++ cannot), builds an NPPL per ProfileProjectionLabel, spreads them so the
+        // text columns don't overlap and the leaders don't cross (NPPLPlacement), and
+        // attaches the per-object reactors so the runtime keeps them in sync.
+
+        // The label sits this far above the surface (top) profile at its station.
+        private const double NpplSurfaceClearance = 5.0;
+        private const double NpplDefaultTextSizeMm = 1.5;
+        // Readability gap added to the text-column thickness when spreading labels.
+        private const double NpplReadabilityGap = 0.2;
+
+        private static bool s_npplFactoriesReady;
+
+        // Inputs the placement pass needs for one created label (gathered while Civil
+        // is read in pass 1, consumed in the placement pass).
+        private readonly struct NpplPlaceInput
+        {
+            public readonly Oid NpplId;
+            public readonly Oid ViewId;
+            public readonly double P0x;          // projection x in the view (leader anchor)
+            public readonly double P0y;          // projection y (top of the leader)
+            public readonly double ShelfYCand;   // surface+clearance view-y (shelf candidate)
+            public readonly double TextLen;      // measured text length (column height)
+            public NpplPlaceInput(Oid npplId, Oid viewId, double p0x, double p0y, double shelfYCand, double textLen)
+            { NpplId = npplId; ViewId = viewId; P0x = p0x; P0y = p0y; ShelfYCand = shelfYCand; TextLen = textLen; }
+        }
+
+        /// <command>NDHPPLREPLACE</command>
+        /// <summary>
+        /// Replaces every Civil 3D ProfileProjectionLabel in model space with a
+        /// NorsynProjectionProfileLabel (NPPL), de-cluttered so the vertical text
+        /// columns don't overlap and the 4-point leaders don't cross.
+        /// </summary>
+        /// <category>Longitudinal Profiles</category>
+        [CommandMethod("NDHPPLREPLACE")]
+        public void ndhpplreplace() => NpplRun(eraseOriginals: true, limit: 0);
+
+        private static void NpplRun(bool eraseOriginals, int limit)
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+            NpplEnsureFactories();
+
+            int total = 0, made = 0, failed = 0;
+            var created = new List<NpplPlaceInput>();
+            double modelHeight = NpplModelTextHeight(db);   // text column thickness (annotative)
+
+            // Pass 1: create the NPPLs (reads Civil; sources open ForRead, so reactors
+            // are NOT attached here). Each label is created with caches set but NOT yet
+            // placed — the placement pass below assigns the text position.
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                var ms = (BlockTableRecord)tr.GetObject(
+                    SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
+
+                var pplIds = new List<Oid>();
+                foreach (Oid id in ms)
+                    if (id.ObjectClass.Name == "AeccDbProfileProjectionLabel")
+                        pplIds.Add(id);
+                total = pplIds.Count;
+
+                foreach (Oid pid in pplIds)
+                {
+                    if (limit > 0 && made >= limit) break;
+                    try
+                    {
+                        NpplPlaceInput? item = NpplCreateFor(tr, ms, pid, modelHeight);
+                        if (item.HasValue)
+                        {
+                            made++; created.Add(item.Value);
+                            if (eraseOriginals)
+                                ((Entity)tr.GetObject(pid, OpenMode.ForWrite)).Erase();
+                        }
+                        else failed++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        failed++;
+                        ed.WriteMessage($"\n  {pid.Handle}: {ex.Message}");
+                    }
+                }
+                tr.Commit();
+            }
+
+            // Pass 1.5: de-clutter. Group by ProfileView and run the placement.
+            NpplPlaceAll(db, created, modelHeight);
+
+            // Pass 2: attach persistent reactors. The creation transaction has
+            // committed, so the CogoPoint / ProfileView are no longer open — the
+            // native ForWrite open inside AttachReactors no longer clashes. The
+            // NorsynObjectsManaged runtime drains these on idle to keep labels synced.
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                foreach (NpplPlaceInput it in created)
+                {
+                    try
+                    {
+                        if (tr.GetObject(it.NpplId, OpenMode.ForRead) is Npp np)
+                            np.AttachReactors();
+                    }
+                    catch { /* skip a label that won't attach */ }
+                }
+                tr.Commit();
+            }
+
+            ed.WriteMessage(
+                $"\nNDHPPL: total={total} created={made} failed={failed} " +
+                $"erased={(eraseOriginals ? made : 0)}\n");
+        }
+
+        // Build one NPPL from a Civil ProfileProjectionLabel. Sets the caches and a
+        // provisional (directly-above) text position; the real text position is
+        // assigned by the placement pass. Returns the placement inputs, or null if the
+        // label has no usable CogoPoint/ProfileView.
+        private static NpplPlaceInput? NpplCreateFor(Transaction tr, BlockTableRecord ms, Oid pplId,
+                                                     double modelHeight)
+        {
+            var ppl = (ProfileProjectionLabel)tr.GetObject(pplId, OpenMode.ForRead);
+            if (ppl.ProjectionSourceId.IsNull || ppl.ViewId.IsNull) return null;
+            if (ppl.ProjectionSourceId.ObjectClass.Name != "AeccDbCogoPoint") return null;
+
+            var cp = (CogoPoint)tr.GetObject(ppl.ProjectionSourceId, OpenMode.ForRead);
+            var pv = (ProfileView)tr.GetObject(ppl.ViewId, OpenMode.ForRead);
+            var al = (Alignment)tr.GetObject(pv.AlignmentId, OpenMode.ForRead);
+
+            // Projection location P0 = (station, point elevation) mapped to the view.
+            double sta = 0, off = 0;
+            al.StationOffset(cp.Location.X, cp.Location.Y, ref sta, ref off);
+            double px = 0, py = 0;
+            pv.FindXYAtStationAndElevation(sta, cp.Location.Z, ref px, ref py);
+            var p0 = new Point3d(px, py, 0);
+
+            // Shelf candidate: 5 m above the surface (top) profile at this station.
+            double surf = NpplSurfaceElevation(tr, al, sta);
+            double tx = px, ty = py + NpplSurfaceClearance;
+            if (!double.IsNaN(surf))
+                pv.FindXYAtStationAndElevation(sta, surf + NpplSurfaceClearance, ref tx, ref ty);
+
+            string desc = cp.RawDescription ?? string.Empty;
+
+            var nppl = new Npp
+            {
+                CogoPointId = ppl.ProjectionSourceId,
+                ProfileViewId = ppl.ViewId,
+                Description = desc,
+                ProjectionLocation = p0,
+                TextPosition = new Point3d(px, ty, 0),   // provisional; placed below
+                MiddleSegmentElevation = (py + ty) * 0.5,
+                TextSizeMm = NpplDefaultTextSizeMm,
+            };
+
+            var ent = (Entity)nppl;
+            ms.AppendEntity(ent);
+            tr.AddNewlyCreatedDBObject(ent, true);
+            ent.LayerId = ppl.LayerId;   // inherit layer from the projection
+            ent.Color = ppl.Color;       // inherit colour (ByLayer / explicit)
+            // children built by the placement pass (after the final text position)
+
+            return new NpplPlaceInput(ent.ObjectId, ppl.ViewId, px, py, ty, NpplMeasureTextWidth(desc, modelHeight));
+        }
+
+        // De-clutter every created label: group by ProfileView, then assign each label
+        // a text position so the columns don't overlap and the leaders don't cross.
+        private static void NpplPlaceAll(Database db, List<NpplPlaceInput> items, double modelHeight)
+        {
+            if (items.Count == 0) return;
+            double gap = modelHeight + NpplReadabilityGap;
+
+            var byView = new Dictionary<Oid, List<NpplPlaceInput>>();
+            foreach (NpplPlaceInput it in items)
+            {
+                if (!byView.TryGetValue(it.ViewId, out var list))
+                    byView[it.ViewId] = list = new List<NpplPlaceInput>();
+                list.Add(it);
+            }
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                foreach (var kv in byView)
+                {
+                    if (tr.GetObject(kv.Key, OpenMode.ForRead) is not ProfileView pv) continue;
+                    var bounds = ((Entity)pv).GeometricExtents;
+                    double lo = bounds.MinPoint.X + modelHeight;
+                    double hi = bounds.MaxPoint.X - modelHeight;
+
+                    // sort by projection x (== station order) -> non-crossing order
+                    var ordered = kv.Value.OrderBy(p => p.P0x).ToList();
+                    double[] targets = ordered.Select(p => p.P0x).ToArray();
+                    double shelf = ordered.Max(p => p.ShelfYCand);   // one shared text baseline
+                    double projTop = ordered.Max(p => p.P0y);        // top of the projection band
+
+                    NPPLPlacement.Slot[] slots = NPPLPlacement.Place(targets, gap, lo, hi, shelf, projTop);
+
+                    for (int i = 0; i < ordered.Count; i++)
+                    {
+                        if (tr.GetObject(ordered[i].NpplId, OpenMode.ForWrite) is not Npp np) continue;
+                        np.TextPosition = new Point3d(slots[i].X, shelf, 0);
+                        // straight leaders ignore the shoulder (P3x == P0x); give the
+                        // clustered ones their own ladder rung so each is traceable.
+                        np.MiddleSegmentElevation = slots[i].Straight
+                            ? (ordered[i].P0y + shelf) * 0.5
+                            : slots[i].GripY;
+                        np.RebuildChildren();
+                    }
+                }
+                tr.Commit();
+            }
+        }
+
+        // Annotative text column thickness = nominal mm * (DrawingUnits/PaperUnits).
+        private static double NpplModelTextHeight(Database db)
+        {
+            double mm = NpplDefaultTextSizeMm;
+            try
+            {
+                var cs = db.Cannoscale;
+                if (cs != null && cs.PaperUnits > 0)
+                    return mm * (cs.DrawingUnits / cs.PaperUnits);
+            }
+            catch { /* fall through to nominal */ }
+            return mm;
+        }
+
+        // Length of the description rendered at the model height (vertical extent of
+        // the rotated text column). Informational; the column thickness drives spacing.
+        private static double NpplMeasureTextWidth(string text, double height)
+        {
+            if (string.IsNullOrEmpty(text)) return 0.0;
+            try
+            {
+                using (var t = new DBText { TextString = text, Height = height, Position = Point3d.Origin })
+                {
+                    var e = t.GeometricExtents;
+                    return e.MaxPoint.X - e.MinPoint.X;
+                }
+            }
+            catch { return text.Length * height * 0.6; }
+        }
+
+        // The "surface" profile = the topmost profile at this station. Max elevation
+        // across the alignment's profiles; NaN if none is evaluable here.
+        private static double NpplSurfaceElevation(Transaction tr, Alignment al, double sta)
+        {
+            double best = double.NaN;
+            foreach (Oid pid in al.GetProfileIds())
+            {
+                try
+                {
+                    var prof = (Profile)tr.GetObject(pid, OpenMode.ForRead);
+                    double e = prof.ElevationAt(sta);
+                    if (double.IsNaN(best) || e > best) best = e;
+                }
+                catch { /* station outside this profile's range */ }
+            }
+            return best;
+        }
+
+        // Object factories aren't auto-registered when the interop is referenced (not
+        // NETLOADed), so register both explicitly (idempotent; needs the dbx loaded).
+        private static void NpplEnsureFactories()
+        {
+            if (s_npplFactoriesReady) return;
+            Editor ed = Application.DocumentManager.MdiActiveDocument?.Editor;
+            try { NorsynObjectsInterop.NorsynContainer.RegisterObjectFactory(); }
+            catch (System.Exception e) { ed?.WriteMessage("\nNorsynContainer factory: " + e.Message); }
+            try { Npp.RegisterObjectFactory(); }
+            catch (System.Exception e) { ed?.WriteMessage("\nNPPL factory: " + e.Message); }
+            s_npplFactoriesReady = true;
+        }
+        #endregion
 
         /// <command>SETLABELSLENGTH</command>
         /// <summary>
@@ -5295,7 +5605,8 @@ namespace IntersectUtilities
                 PSetDefs.DriSourceReference driSourceReference = new PSetDefs.DriSourceReference();
                 #region Open fremtidig db
 
-                DataReferencesOptions dro = new DataReferencesOptions();
+                var dro = DataReferencesOptions.Create();
+                if (dro == null) return;
                 var dm = new DataManager(dro);
                 //open the xref database
                 using Database fremDb = dm.Fremtid();
@@ -5694,6 +6005,13 @@ namespace IntersectUtilities
             {
                 try
                 {
+                    // Workaround flag: when true, shrinks R for polyline arcs adjacent to
+                    // another arc so Civil 3D's free-curve resolver leaves a tiny tangent
+                    // (~10mm total) between them instead of touching curves AUDIT removes.
+                    // Set to false to restore original behavior.
+                    const bool USE_TINY_TANGENT_WORKAROUND = true;
+                    const double HALF_GAP = 0.005;  // 5mm per side -> 10mm between adjacent arcs
+
                     #region Selection of polyline and profile view
                     PromptEntityOptions promptEntityOptions1 = new PromptEntityOptions(
                                     "\n Select a polyline : ");
@@ -5758,7 +6076,7 @@ namespace IntersectUtilities
                             layerId, profileStyleId, profileLabelSetStylesId);
 
                     Profile profile = pId.Go<Profile>(tx, OpenMode.ForWrite);
-
+                    
                     Polyline polyline = plObjId.Go<Polyline>(tx);
 
                     //Check direction
@@ -5853,7 +6171,28 @@ namespace IntersectUtilities
                                         var ins = pts[0];
                                         pv.FindStationAndElevationAtXY(ins.X, ins.Y, ref station, ref elevation);
                                         var pvi = profile.PVIs.AddPVI(station, elevation);
-                                        pvis.Add((arc.Radius, pvi));
+
+                                        if (USE_TINY_TANGENT_WORKAROUND)
+                                        {
+                                            double effectiveRadius = arc.Radius;
+                                            bool prevIsArc = i > 0 &&
+                                                polyline.GetSegmentType(i - 1) == SegmentType.Arc;
+                                            bool nextIsArc = !isLast && nextType == SegmentType.Arc;
+                                            if (prevIsArc || nextIsArc)
+                                            {
+                                                double bulge = polyline.GetBulgeAt(i);
+                                                // Δ = 4·atan(bulge); shrink T by HALF_GAP on each side
+                                                // ⇒ ΔR = HALF_GAP / tan(Δ/2) = HALF_GAP / tan(2·atan(|bulge|))
+                                                double tanHalfDelta = Math.Tan(2.0 * Math.Atan(Math.Abs(bulge)));
+                                                if (tanHalfDelta > 1e-9)
+                                                    effectiveRadius = arc.Radius - HALF_GAP / tanHalfDelta;
+                                            }
+                                            pvis.Add((effectiveRadius, pvi));
+                                        }
+                                        else
+                                        {
+                                            pvis.Add((arc.Radius, pvi));
+                                        }
                                     }
                                     else
                                     {
@@ -5892,8 +6231,307 @@ namespace IntersectUtilities
                         {
                             profile.Entities.AddFreeCircularCurveByPVIAndRadius(pvi, radius);
                         }
-                        catch { }
+                        catch (System.Exception ex)
+                        {
+                            prdDbg(
+                                $"AddFreeCircularCurveByPVIAndRadius failed at PVI " +
+                                $"(Sta: {pvi.RawStation:F3}, El: {pvi.Elevation:F3}) " +
+                                $"R: {radius:F3} -> {ex.GetType().Name}: {ex.Message}");
+                        }
                     }
+                }
+                catch (System.Exception ex)
+                {
+                    tx.Abort();
+                    prdDbg(ex);
+                    return;
+                }
+                tx.Commit();
+            }
+        }
+
+        /// <command>LISTPROFILEDATA</command>
+        /// <summary>
+        /// Dumps the data of a selected profile (PVIs and entities) to the command line as a table.
+        /// Useful for diagnosing profile-creation issues (e.g. MYPFP, AUDIT-removed curves).
+        /// </summary>
+        /// <category>Longitudinal Profiles</category>
+        [CommandMethod("LISTPROFILEDATA")]
+        public void listprofiledata()
+        {
+            DocumentCollection docCol = Application.DocumentManager;
+            Database localDb = docCol.MdiActiveDocument.Database;
+
+            var profileId = Interaction.GetEntity("Select profile: ", typeof(Profile));
+            if (profileId == Oid.Null)
+                return;
+
+            using (Transaction tx = localDb.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    // When true, entities are walked in profile-flow order via the
+                    // FirstEntity → EntityAfter linked list (the order they actually appear
+                    // along the alignment). When false, they're enumerated in the order
+                    // ProfileEntityCollection's own iterator returns them (typically grouped
+                    // by entity type — Tangents first, then Circulars, etc.).
+                    const bool LIST_ENTITIES_IN_FLOW_ORDER = true;
+
+                    Profile profile = profileId.Go<Profile>(tx);
+                    Alignment al = profile.AlignmentId.Go<Alignment>(tx);
+
+                    StringBuilder sb = new StringBuilder();
+                    sb.AppendLine();
+                    sb.AppendLine($"Profile: {profile.Name}  (Alignment: {al.Name})");
+                    sb.AppendLine();
+
+                    sb.AppendLine($"PVIs ({profile.PVIs.Count}):");
+                    sb.AppendLine($"  {"Idx",-4} | {"Station",-12} | {"Elevation",-12}");
+                    sb.AppendLine($"  {new string('-', 4)}-+-{new string('-', 12)}-+-{new string('-', 12)}");
+                    int pviIdx = 0;
+                    foreach (ProfilePVI pvi in profile.PVIs)
+                    {
+                        sb.AppendLine($"  {pviIdx,-4} | {pvi.RawStation,-12:F3} | {pvi.Elevation,-12:F3}");
+                        pviIdx++;
+                    }
+                    sb.AppendLine();
+
+                    string orderLabel = LIST_ENTITIES_IN_FLOW_ORDER ? "flow order" : "collection order";
+                    sb.AppendLine($"Entities ({profile.Entities.Count}, {orderLabel}):");
+                    sb.AppendLine(
+                        $"  {"Idx",-4} | {"EntityType",-30} | {"StartSta",-10} | {"EndSta",-10} | " +
+                        $"{"Length",-10} | {"Radius",-10} | {"Grade",-10}");
+                    sb.AppendLine(
+                        $"  {new string('-', 4)}-+-{new string('-', 30)}-+-{new string('-', 10)}-+-{new string('-', 10)}-+-" +
+                        $"{new string('-', 10)}-+-{new string('-', 10)}-+-{new string('-', 10)}");
+
+                    void AppendEntityRow(int idx, ProfileEntity entity)
+                    {
+                        string typeStr = entity.EntityType.ToString();
+                        string startSta = entity.StartStation.ToString("F3");
+                        string endSta = entity.EndStation.ToString("F3");
+                        string length = entity.Length.ToString("F3");
+                        string radiusStr = "-";
+                        string gradeStr = "-";
+
+                        switch (entity)
+                        {
+                            case ProfileTangent tan:
+                                gradeStr = tan.Grade.ToString("F4");
+                                break;
+                            case ProfileCircular circ:
+                                radiusStr = circ.Radius.ToString("F3");
+                                break;
+                            case ProfileParabolaSymmetric par:
+                                radiusStr = par.Radius.ToString("F3");
+                                break;
+                        }
+
+                        sb.AppendLine(
+                            $"  {idx,-4} | {typeStr,-30} | {startSta,-10} | {endSta,-10} | " +
+                            $"{length,-10} | {radiusStr,-10} | {gradeStr,-10}");
+                    }
+
+                    if (LIST_ENTITIES_IN_FLOW_ORDER)
+                    {
+                        if (profile.Entities.Count > 0)
+                        {
+                            int entIdx = 0;
+                            uint id = profile.Entities.FirstEntity;
+                            uint lastId = profile.Entities.LastEntity;
+                            while (true)
+                            {
+                                ProfileEntity entity;
+                                try { entity = profile.Entities.EntityAtId(id); }
+                                catch (System.Exception ex)
+                                {
+                                    sb.AppendLine($"  -- linked-list walk aborted at id {id}: {ex.GetType().Name}: {ex.Message}");
+                                    break;
+                                }
+                                AppendEntityRow(entIdx, entity);
+                                entIdx++;
+                                if (id == lastId) break;
+                                uint nextId = entity.EntityAfter;
+                                if (nextId == id || nextId == 0) break;
+                                id = nextId;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        int entIdx = 0;
+                        foreach (ProfileEntity entity in profile.Entities)
+                        {
+                            AppendEntityRow(entIdx, entity);
+                            entIdx++;
+                        }
+                    }
+
+                    prdDbg(sb.ToString());
+                }
+                catch (System.Exception ex)
+                {
+                    tx.Abort();
+                    prdDbg(ex);
+                    return;
+                }
+                tx.Commit();
+            }
+        }
+
+        /// <command>LISTPOLYLINEGEOM</command>
+        /// <summary>
+        /// Dumps polyline segment geometry and per-vertex tangent-mismatch table for a selected polyline.
+        /// Surfaces sub-degree kinks between adjacent segments that AutoCAD doesn't show in the UI.
+        /// Useful before MYPFP to verify tangent continuity is within Civil 3D's tolerance.
+        /// </summary>
+        /// <category>Longitudinal Profiles</category>
+        [CommandMethod("LISTPOLYLINEGEOM")]
+        public void listpolylinegeom()
+        {
+            DocumentCollection docCol = Application.DocumentManager;
+            Database localDb = docCol.MdiActiveDocument.Database;
+
+            var plId = Interaction.GetEntity("Select polyline: ", typeof(Polyline));
+            if (plId == Oid.Null)
+                return;
+
+            using (Transaction tx = localDb.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    Polyline pl = plId.Go<Polyline>(tx);
+                    int nVerts = pl.NumberOfVertices;
+                    int nSegs = pl.Closed ? nVerts : nVerts - 1;
+
+                    StringBuilder sb = new StringBuilder();
+                    sb.AppendLine();
+                    sb.AppendLine(
+                        $"Polyline: handle {pl.Handle}, {nVerts} vertices, " +
+                        $"{nSegs} segments, Closed: {pl.Closed}");
+                    sb.AppendLine();
+
+                    sb.AppendLine($"Segments:");
+                    sb.AppendLine(
+                        $"  {"Idx",-4} | {"Type",-4} | {"StartPt",-26} | {"EndPt",-26} | " +
+                        $"{"Length",-10} | {"Bulge",-12} | {"Radius",-10} | {"Defl(deg)",-10}");
+                    sb.AppendLine(
+                        $"  {new string('-', 4)}-+-{new string('-', 4)}-+-{new string('-', 26)}-+-" +
+                        $"{new string('-', 26)}-+-{new string('-', 10)}-+-{new string('-', 12)}-+-" +
+                        $"{new string('-', 10)}-+-{new string('-', 10)}");
+
+                    Vector2d[] inTangents = new Vector2d[nSegs];
+                    Vector2d[] outTangents = new Vector2d[nSegs];
+                    string[] segTypes = new string[nSegs];
+                    Point2d[] segEnd = new Point2d[nSegs];
+
+                    for (int i = 0; i < nSegs; i++)
+                    {
+                        var segType = pl.GetSegmentType(i);
+                        string typeStr;
+                        Point2d sp, ep;
+                        double length;
+                        double bulge = pl.GetBulgeAt(i);
+                        string radiusStr = "-";
+                        string deflStr = "-";
+
+                        if (segType == SegmentType.Line)
+                        {
+                            LineSegment2d ls = pl.GetLineSegment2dAt(i);
+                            sp = ls.StartPoint;
+                            ep = ls.EndPoint;
+                            length = ls.Length;
+                            typeStr = "Line";
+                            Vector2d dir = (ep - sp).GetNormal();
+                            inTangents[i] = dir;
+                            outTangents[i] = dir;
+                        }
+                        else if (segType == SegmentType.Arc)
+                        {
+                            CircularArc2d arc = pl.GetArcSegment2dAt(i);
+                            sp = arc.StartPoint;
+                            ep = arc.EndPoint;
+                            typeStr = "Arc";
+                            radiusStr = arc.Radius.ToString("F4");
+                            double deflRad = 4.0 * Math.Atan(bulge);
+                            double deflDegAbs = Math.Abs(deflRad) * 180.0 / Math.PI;
+                            deflStr = deflDegAbs.ToString("F4");
+                            length = arc.Radius * Math.Abs(deflRad);
+
+                            Vector2d rs = sp - arc.Center;
+                            Vector2d re = ep - arc.Center;
+                            Vector2d tStart, tEnd;
+                            if (arc.IsClockWise)
+                            {
+                                tStart = new Vector2d(rs.Y, -rs.X).GetNormal();
+                                tEnd = new Vector2d(re.Y, -re.X).GetNormal();
+                            }
+                            else
+                            {
+                                tStart = new Vector2d(-rs.Y, rs.X).GetNormal();
+                                tEnd = new Vector2d(-re.Y, re.X).GetNormal();
+                            }
+                            inTangents[i] = tStart;
+                            outTangents[i] = tEnd;
+                        }
+                        else
+                        {
+                            typeStr = segType.ToString();
+                            Point2d v = pl.GetPoint2dAt(i);
+                            sp = v; ep = v;
+                            length = 0;
+                            inTangents[i] = Vector2d.XAxis;
+                            outTangents[i] = Vector2d.XAxis;
+                        }
+
+                        segTypes[i] = typeStr;
+                        segEnd[i] = ep;
+
+                        string spStr = $"({sp.X:F3},{sp.Y:F3})";
+                        string epStr = $"({ep.X:F3},{ep.Y:F3})";
+                        sb.AppendLine(
+                            $"  {i,-4} | {typeStr,-4} | {spStr,-26} | {epStr,-26} | " +
+                            $"{length,-10:F4} | {bulge,-12:F6} | {radiusStr,-10} | {deflStr,-10}");
+                    }
+                    sb.AppendLine();
+
+                    sb.AppendLine($"Tangent continuity at interior vertices (mismatch < 0.001 deg = OK):");
+                    sb.AppendLine(
+                        $"  {"Vtx",-4} | {"Pt",-26} | {"InSeg",-5} | {"OutSeg",-6} | " +
+                        $"{"InTanAng",-12} | {"OutTanAng",-12} | {"Mismatch(deg)",-14} | Status");
+                    sb.AppendLine(
+                        $"  {new string('-', 4)}-+-{new string('-', 26)}-+-{new string('-', 5)}-+-" +
+                        $"{new string('-', 6)}-+-{new string('-', 12)}-+-{new string('-', 12)}-+-" +
+                        $"{new string('-', 14)}-+-------");
+
+                    int kinkCount = 0;
+                    double maxMismatch = 0;
+                    int interiorEnd = pl.Closed ? nSegs : nSegs - 1;
+                    for (int v = 1; v <= interiorEnd; v++)
+                    {
+                        int prev = (v - 1) % nSegs;
+                        int next = v % nSegs;
+                        Vector2d tin = outTangents[prev];
+                        Vector2d tout = inTangents[next];
+                        double dot = tin.X * tout.X + tin.Y * tout.Y;
+                        double cross = tin.X * tout.Y - tin.Y * tout.X;
+                        double mismatchDeg = Math.Abs(Math.Atan2(cross, dot)) * 180.0 / Math.PI;
+                        double inAngDeg = Math.Atan2(tin.Y, tin.X) * 180.0 / Math.PI;
+                        double outAngDeg = Math.Atan2(tout.Y, tout.X) * 180.0 / Math.PI;
+                        string status = mismatchDeg < 0.001 ? "OK" : "KINK";
+                        if (mismatchDeg >= 0.001) kinkCount++;
+                        if (mismatchDeg > maxMismatch) maxMismatch = mismatchDeg;
+
+                        Point2d pt = segEnd[prev];
+                        string ptStr = $"({pt.X:F3},{pt.Y:F3})";
+                        sb.AppendLine(
+                            $"  {v,-4} | {ptStr,-26} | {segTypes[prev],-5} | {segTypes[next],-6} | " +
+                            $"{inAngDeg,-12:F6} | {outAngDeg,-12:F6} | {mismatchDeg,-14:F6} | {status}");
+                    }
+                    sb.AppendLine();
+                    sb.AppendLine($"Summary: {kinkCount} kinks (>= 0.001 deg), max mismatch = {maxMismatch:F6} deg");
+
+                    prdDbg(sb.ToString());
                 }
                 catch (System.Exception ex)
                 {
@@ -6155,7 +6793,8 @@ namespace IntersectUtilities
 
             #region Open fremtidig db
             if (dro == null)
-                dro = new DataReferencesOptions();
+                dro = DataReferencesOptions.Create();
+            if (dro == null) return;
             var dm = new DataManager(dro);
 
             // open the xref database
@@ -6603,7 +7242,8 @@ namespace IntersectUtilities
         [CommandMethod("UPDATESINGLEPROFILEVIEW")]
         public void updatesingleprofileview()
         {
-            var dro = new DataReferencesOptions();
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
             DataManager dm = new DataManager(dro);
             using var surfaceDb = dm.Surface();
             using var stx = surfaceDb.TransactionManager.StartTransaction();
@@ -6647,7 +7287,8 @@ namespace IntersectUtilities
 
             if (dro == null)
             {
-                dro = new DataReferencesOptions();
+                dro = DataReferencesOptions.Create();
+                if (dro == null) return;
                 if (dro.ProjectName.IsNoE() || dro.EtapeName.IsNoE())
                     return;
             }
@@ -6874,7 +7515,8 @@ namespace IntersectUtilities
             Database localDb = docCol.MdiActiveDocument.Database;
             Editor editor = docCol.MdiActiveDocument.Editor;
 
-            DataReferencesOptions dro = new DataReferencesOptions();
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
             if (dro.ProjectName.IsNoE() || dro.EtapeName.IsNoE())
                 return;
 
@@ -6927,7 +7569,8 @@ namespace IntersectUtilities
             Database localDb = docCol.MdiActiveDocument.Database;
 
             #region Open fremtidig db and get entities
-            var dro = new DataReferencesOptions();
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
             var dm = new DataManager(dro);
 
             // open the xref database
@@ -7264,7 +7907,9 @@ namespace IntersectUtilities
                 return;
             #endregion
 
-            var dm = new DataManager(new DataReferencesOptions());
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
+            var dm = new DataManager(dro);
             using Database fjvDb = dm.Fremtid();
             using Database alDb = dm.Alignments();
             HashSet<Database> længdeprofilerdbs = dm.Længdeprofiler().ToHashSet();
@@ -7318,7 +7963,9 @@ namespace IntersectUtilities
             Database localDb = docCol.MdiActiveDocument.Database;
             CivilDocument cdoc = CivilDocument.GetCivilDocument(localDb);
 
-            var dm = new DataManager(new DataReferencesOptions());
+            var dro = DataReferencesOptions.Create();
+            if (dro == null) return;
+            var dm = new DataManager(dro);
             using Database fjvDb = dm.Fremtid();
             using Database alDb = dm.Alignments();
             HashSet<Database> længdeprofilerdbs = dm.Længdeprofiler().ToHashSet();
